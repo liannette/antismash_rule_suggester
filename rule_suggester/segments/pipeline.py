@@ -24,9 +24,11 @@ from .segmentation import build_segments
 class GroupRunResult:
     group_name: str
     out_dir: Path
+    n_bgcs: int  # subcluster instances in this product group
     n_proteins: int
     n_segments: int
     n_groups: int
+    group_bgc_counts: list[tuple[str, int]]  # (group_id, n_bgcs) -- subcluster instances per group
     invariant_violations: list[str]
 
 
@@ -56,9 +58,11 @@ def run_group(group_dir: Path, out_dir: Path, params: Params, diamond_bin: Path)
     return GroupRunResult(
         group_name=group_name,
         out_dir=out_dir,
+        n_bgcs=total_bgcs,
         n_proteins=len(proteins),
         n_segments=len(segments),
         n_groups=len(groups),
+        group_bgc_counts=[(g.id, g.n_bgcs) for g in groups],
         invariant_violations=violations,
     )
 

@@ -183,7 +183,7 @@ def _write_report(
     lines.append("## Proteins split into multiple segments")
     lines.append("")
     if split_proteins:
-        lines.append("| gene name | protein ID | locus tag | BGC | n segments | segments (range -> group) |")
+        lines.append("| BGC | gene name | protein ID | locus tag | n segments | segments (range -> group) |")
         lines.append("|---|---|---|---|---|---|")
         for p in split_proteins:
             segs = sorted(by_protein[p.key], key=lambda s: s.start)
@@ -191,7 +191,7 @@ def _write_report(
                 f"{s.start + 1}-{s.end} -> {group_of_segment.get(s.id, '?')}" for s in segs
             )
             lines.append(
-                f"| {p.gene_name} | {p.protein_id} | {p.locus_tag} | {p.bgc_id} | {len(segs)} | {detail} |"
+                f"| {p.bgc_id} | {p.gene_name} | {p.protein_id} | {p.locus_tag} | {len(segs)} | {detail} |"
             )
     else:
         lines.append("None.")

@@ -7,6 +7,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
+from .clans import Clan
 from .params import PfamParams
 from .phase1_io import GroupMembership, SegmentRecord
 from .scan import Domain
@@ -74,6 +75,8 @@ class GroupDomain:
     group_id: str
     pfam_acc: str
     pfam_name: str
+    clan_acc: str
+    clan_name: str
     n_bgcs_with_domain: int
     n_bgcs_total: int
     prevalence: float
@@ -86,7 +89,9 @@ def compute_group_domains(
     group_of_segment: dict[str, str],
     n_bgcs_by_group: dict[str, int],
     params: PfamParams,
+    clan_map: dict[str, Clan] | None = None,
 ) -> list[GroupDomain]:
+    clan_map = clan_map or {}
     bgcs_with_domain: dict[tuple[str, str], set[str]] = defaultdict(set)
     any_straddle: dict[tuple[str, str], bool] = defaultdict(bool)
     pfam_names: dict[str, str] = {}
@@ -111,11 +116,14 @@ def compute_group_domains(
         n_with = len(bgcs_with_domain.get(key, set()))
         prevalence = n_with / n_total if n_total else 0.0
         straddle = any_straddle.get(key, False)
+        clan = clan_map.get(pfam_acc)
         results.append(
             GroupDomain(
                 group_id=group_id,
                 pfam_acc=pfam_acc,
                 pfam_name=pfam_names.get(pfam_acc, ""),
+                clan_acc=clan.acc if clan else "",
+                clan_name=clan.name if clan else "",
                 n_bgcs_with_domain=n_with,
                 n_bgcs_total=n_total,
                 prevalence=prevalence,

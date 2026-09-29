@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..segments.io_fasta import Protein, discover_group_dirs, load_group_proteins
+from .clans import Clan, load_pfam_clans
 from .mapping import build_group_of_segment, compute_group_domains, map_domains_to_segments
 from .outputs import write_pfam_outputs
 from .params import PfamParams
@@ -29,7 +30,10 @@ class PfamGroupResult:
     n_straddling: int
 
 
-def run_pfam(fasta_dir: Path, segments_dir: Path, params: PfamParams) -> list[PfamGroupResult]:
+def run_pfam(
+    fasta_dir: Path, segments_dir: Path, params: PfamParams, clans_path: Path | None = None
+) -> list[PfamGroupResult]:
+    clan_map: dict[str, Clan] = load_pfam_clans(clans_path) if clans_path else {}
     group_dirs = discover_group_dirs(fasta_dir)
 
     proteins_by_group: dict[str, list[Protein]] = {}
@@ -67,9 +71,11 @@ def run_pfam(fasta_dir: Path, segments_dir: Path, params: PfamParams) -> list[Pf
             for d in domains_by_protein.get((p.bgc_id, p.protein_id or p.local_key), [])
         ]
         assignments = map_domains_to_segments(group_domains_flat, segments, params)
-        group_domain_rows = compute_group_domains(assignments, group_of_segment, n_bgcs_by_group, params)
+        group_domain_rows = compute_group_domains(
+            assignments, group_of_segment, n_bgcs_by_group, params, clan_map
+        )
 
-        write_pfam_outputs(out_dir, group_name, assignments, group_domain_rows, params)
+        write_pfam_outputs(out_dir, group_name, assignments, group_domain_rows, params, clan_map)
 
         result = PfamGroupResult(
             group_name=group_name,

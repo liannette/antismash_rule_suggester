@@ -7,7 +7,6 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from .absorb import SegmentMerge
 from .breakpoints import BreakpointResult
 from .grouping import Group
 from .hits import HitsResult
@@ -26,7 +25,6 @@ def write_outputs(
     edges: list[tuple[str, str, float]],
     groups: list[Group],
     invariant_violations: list[str],
-    absorptions: list[SegmentMerge],
     params: Params,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +45,6 @@ def write_outputs(
         segments,
         groups,
         invariant_violations,
-        absorptions,
     )
 
 
@@ -133,7 +130,6 @@ def _write_report(
     segments: list[Segment],
     groups: list[Group],
     invariant_violations: list[str],
-    absorptions: list[SegmentMerge],
 ) -> None:
     bgcs = sorted({p.bgc_id for p in proteins})
     total_bgcs = len(bgcs)
@@ -183,25 +179,6 @@ def _write_report(
                 f"{seg.start + 1}-{seg.end} | {seg.length} |"
             )
         lines.append("")
-
-    lines.append("## Uninformative breakpoints merged")
-    lines.append("")
-    lines.append(
-        "Two adjacent same-protein segments were merged (boundary extended, breakpoint dropped) "
-        "whenever their adjacency covered every member of at least one of their two groups -- i.e. "
-        "no BGC had one piece without the other, so the split didn't distinguish anything."
-    )
-    lines.append("")
-    if absorptions:
-        lines.append("| protein | merged segments | into segment |")
-        lines.append("|---|---|---|")
-        proteins_by_key = {p.key: p for p in proteins}
-        for a in absorptions:
-            p = proteins_by_key[a.protein_key]
-            lines.append(f"| {p.protein_id or p.local_key} ({p.bgc_id}) | {a.from_ids} | {a.into_id} |")
-    else:
-        lines.append("None.")
-    lines.append("")
 
     lines.append("## Proteins split into multiple segments")
     lines.append("")

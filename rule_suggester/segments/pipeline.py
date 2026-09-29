@@ -45,13 +45,12 @@ def run_group(group_dir: Path, out_dir: Path, params: Params, diamond_bin: Path)
     segments = build_segments(proteins, breakpoint_result.breakpoints, params)
     edges = build_edges(proteins, segments, hits.local_hits, hits.selfbits, params)
     cluster_of = cluster_segments(segments, edges, params)
-    segments, cluster_of, absorptions = merge_uninformative_breakpoints(proteins, segments, cluster_of)
+    segments, cluster_of, _ = merge_uninformative_breakpoints(proteins, segments, cluster_of)
     groups = assign_groups(segments, cluster_of, proteins, total_bgcs)
     violations = check_invariants(proteins, segments, groups)
 
     write_outputs(
-        out_dir, group_name, proteins, hits, breakpoint_result, segments, edges, groups, violations,
-        absorptions, params,
+        out_dir, group_name, proteins, hits, breakpoint_result, segments, edges, groups, violations, params
     )
 
     return GroupRunResult(

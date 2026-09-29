@@ -1,0 +1,6 @@
+data/
+output/
+
+*.egg-info/
+*.egg
+__pycache__/

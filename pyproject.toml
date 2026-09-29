@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rule_suggester"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "biopython",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["rule_suggester*"]

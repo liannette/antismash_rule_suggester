@@ -57,6 +57,7 @@ def _write_group_domains_tsv(path: Path, group_domains: list[GroupDomain]) -> No
             [
                 "group_id", "pfam_acc", "pfam_name", "clan_acc", "clan_name",
                 "n_bgcs_with_domain", "n_bgcs_total", "prevalence", "is_signature", "any_straddling",
+                "best_i_evalue", "is_representative",
             ]
         )
         for g in sorted(group_domains, key=lambda g: (g.group_id, -g.prevalence, g.pfam_acc)):
@@ -65,6 +66,7 @@ def _write_group_domains_tsv(path: Path, group_domains: list[GroupDomain]) -> No
                     g.group_id, g.pfam_acc, g.pfam_name, g.clan_acc, g.clan_name,
                     g.n_bgcs_with_domain, g.n_bgcs_total,
                     f"{g.prevalence:.3f}", g.is_signature, g.any_straddling,
+                    g.best_i_evalue, g.is_representative,
                 ]
             )
 
@@ -85,19 +87,26 @@ def _write_pfam_report(
     lines.append("## Domains per group")
     lines.append("")
     lines.append(f"Signature = prevalence >= {params.min_prevalence} and not straddling.")
+    lines.append(
+        "Representative = the signature domain with the best (lowest) independent E-value in its "
+        "clan; signature domains with no clan assignment are automatically representative."
+    )
     lines.append("")
     for group_id in sorted(by_group):
-        rows = sorted(by_group[group_id], key=lambda g: (not g.is_signature, -g.prevalence, g.pfam_acc))
+        rows = sorted(
+            by_group[group_id],
+            key=lambda g: (not g.is_signature, not g.is_representative, -g.prevalence, g.pfam_acc),
+        )
         lines.append(f"### {group_id}")
         lines.append("")
         if rows:
-            lines.append("| Pfam | name | clan | BGCs with domain | signature |")
-            lines.append("|---|---|---|---|---|")
+            lines.append("| Pfam | name | clan | BGCs with domain | signature | representative |")
+            lines.append("|---|---|---|---|---|---|")
             for g in rows:
                 clan = f"{g.clan_acc} {g.clan_name}".strip() if g.clan_acc else ""
                 lines.append(
                     f"| {g.pfam_acc} | {g.pfam_name} | {clan} | {g.n_bgcs_with_domain}/{g.n_bgcs_total} | "
-                    f"{'yes' if g.is_signature else 'no'} |"
+                    f"{'yes' if g.is_signature else 'no'} | {'yes' if g.is_representative else 'no'} |"
                 )
         else:
             lines.append("None.")

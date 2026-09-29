@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .clans import Clan
 from .params import PfamParams
@@ -82,6 +82,8 @@ class GroupDomain:
     prevalence: float
     is_signature: bool
     any_straddling: bool
+    best_i_evalue: float
+    is_representative: bool = False
 
 
 def compute_group_domains(
@@ -94,6 +96,7 @@ def compute_group_domains(
     clan_map = clan_map or {}
     bgcs_with_domain: dict[tuple[str, str], set[str]] = defaultdict(set)
     any_straddle: dict[tuple[str, str], bool] = defaultdict(bool)
+    best_i_evalue: dict[tuple[str, str], float] = {}
     pfam_names: dict[str, str] = {}
 
     for a in assignments:
@@ -108,6 +111,8 @@ def compute_group_domains(
             any_straddle[key] = True
         else:
             bgcs_with_domain[key].add(a.domain.bgc_id)
+            if a.domain.i_evalue < best_i_evalue.get(key, float("inf")):
+                best_i_evalue[key] = a.domain.i_evalue
 
     results = []
     for key in set(bgcs_with_domain) | set(any_straddle):
@@ -129,6 +134,26 @@ def compute_group_domains(
                 prevalence=prevalence,
                 is_signature=(prevalence >= params.min_prevalence and not straddle),
                 any_straddling=straddle,
+                best_i_evalue=best_i_evalue.get(key, float("inf")),
             )
         )
-    return results
+    return _select_representatives(results)
+
+
+def _select_representatives(rows: list[GroupDomain]) -> list[GroupDomain]:
+    """Within each group, nominate one representative Pfam per clan: the signature domain with
+    the best (lowest) independent E-value. Signature Pfams with no clan assignment compete with
+    nobody, so each is its own representative.
+    """
+    best_by_clan: dict[tuple[str, str], GroupDomain] = {}
+    for g in rows:
+        if not g.is_signature:
+            continue
+        clan_key = g.clan_acc or g.pfam_acc
+        key = (g.group_id, clan_key)
+        current = best_by_clan.get(key)
+        if current is None or g.best_i_evalue < current.best_i_evalue:
+            best_by_clan[key] = g
+
+    representative_ids = {(g.group_id, g.pfam_acc) for g in best_by_clan.values()}
+    return [replace(g, is_representative=(g.group_id, g.pfam_acc) in representative_ids) for g in rows]

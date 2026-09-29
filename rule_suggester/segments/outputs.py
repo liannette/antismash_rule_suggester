@@ -171,11 +171,11 @@ def _write_report(
         core = " (core)" if group.n_bgcs == total_bgcs else ""
         lines.append(f"### {group.id} -- {group.n_bgcs}/{total_bgcs} BGCs{core}")
         lines.append("")
-        lines.append("| BGC | gene name | protein ID | range | length |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| BGC | gene name | protein ID | locus tag | range | length |")
+        lines.append("|---|---|---|---|---|---|")
         for seg in sorted(group.segments, key=lambda s: s.bgc_id):
             lines.append(
-                f"| {seg.bgc_id} | {seg.gene_name} | {seg.protein_id} | "
+                f"| {seg.bgc_id} | {seg.gene_name} | {seg.protein_id} | {seg.locus_tag} | "
                 f"{seg.start + 1}-{seg.end} | {seg.length} |"
             )
         lines.append("")
@@ -183,14 +183,16 @@ def _write_report(
     lines.append("## Proteins split into multiple segments")
     lines.append("")
     if split_proteins:
-        lines.append("| protein | BGC | n segments | segments (range -> group) |")
-        lines.append("|---|---|---|---|")
+        lines.append("| gene name | protein ID | locus tag | BGC | n segments | segments (range -> group) |")
+        lines.append("|---|---|---|---|---|---|")
         for p in split_proteins:
             segs = sorted(by_protein[p.key], key=lambda s: s.start)
             detail = "; ".join(
                 f"{s.start + 1}-{s.end} -> {group_of_segment.get(s.id, '?')}" for s in segs
             )
-            lines.append(f"| {p.protein_id or p.local_key} | {p.bgc_id} | {len(segs)} | {detail} |")
+            lines.append(
+                f"| {p.gene_name} | {p.protein_id} | {p.locus_tag} | {p.bgc_id} | {len(segs)} | {detail} |"
+            )
     else:
         lines.append("None.")
     lines.append("")
@@ -203,7 +205,10 @@ def _write_report(
         flagged = True
         lines.append("**Proteins with >4 segments (likely breakpoint noise):**")
         for p in noisy:
-            lines.append(f"- {p.protein_id or p.local_key} ({p.bgc_id}): {len(by_protein[p.key])} segments")
+            lines.append(
+                f"- {p.gene_name} / {p.protein_id} / {p.locus_tag} ({p.bgc_id}): "
+                f"{len(by_protein[p.key])} segments"
+            )
     if not breakpoint_result.converged:
         flagged = True
         lines.append(

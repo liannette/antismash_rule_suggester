@@ -1,15 +1,19 @@
-"""Post-clustering absorption of minor same-protein segments into a bigger neighbour.
+"""Collapsing breakpoints that don't discriminate between BGCs.
 
-A protein that was over-split by breakpoint noise can end up with one piece in a small or
-non-core group while an adjacent piece (same protein) lands in a much better-supported group. That
-minor piece adds no coverage the bigger neighbouring group doesn't already have for this protein's
-BGC, so rather than let it stand as its own group, fold it into the bigger neighbouring segment --
-extending that segment's boundary and dropping the breakpoint between them.
+Two adjacent same-protein segments landing in different groups only matters if their BGC coverage
+actually differs -- i.e. some BGC has one piece but not the other. If the observed same-protein
+adjacency between two groups covers *every* member of at least one of them, the breakpoint between
+them carries no such distinguishing information (every BGC on that side already has both pieces
+back to back), so the groups are merged: boundary extended, breakpoint dropped. This covers both:
+  - a small/partial-coverage segment folded into a much bigger, better-supported neighbour
+    (adjacency covers all of the *smaller* group), and
+  - two equally-supported segments that are simply one domain split in two by HSP fragmentation,
+    with identical BGC coverage (adjacency covers all of *both* groups).
 
-Only same-protein neighbours are ever merged, so this can't mix two different proteins into one
-segment. A merge only fires when one side's group has strictly more BGCs than the other's; a tie
-merges into the earlier (left) segment for determinism. Segments not adjacent to a bigger
-same-protein sibling -- e.g. a real singleton domain with no homolog anywhere -- are untouched.
+A genuine gene fusion is the opposite case: the two segments are only adjacent in the one fused
+lineage, a small fraction of either group's full membership, so that adjacency covers neither
+group fully and the groups are left alone -- per the spec's requirement that a fused gene
+contributes one segment to each group its parts belong to.
 """
 
 from __future__ import annotations
@@ -22,71 +26,74 @@ from .segmentation import Segment
 
 
 @dataclass(frozen=True)
-class Absorption:
+class SegmentMerge:
     protein_key: str
-    absorbed_id: str  # the smaller segment's id, which no longer exists after this
-    into_id: str  # the resulting (extended) segment's id
+    from_ids: str  # the two segment ids that were merged, for the report
+    into_id: str
 
 
-def _cluster_bgc_counts(segments_by_id: dict[str, Segment], cluster_of: dict[str, str]) -> dict[str, int]:
-    bgcs: dict[str, set[str]] = defaultdict(set)
-    for seg in segments_by_id.values():
-        bgcs[cluster_of[seg.id]].add(seg.bgc_id)
-    return {root: len(s) for root, s in bgcs.items()}
-
-
-def absorb_minor_segments(
+def merge_uninformative_breakpoints(
     proteins: list[Protein],
     segments: list[Segment],
     cluster_of: dict[str, str],
-) -> tuple[list[Segment], dict[str, str], list[Absorption]]:
+) -> tuple[list[Segment], dict[str, str], list[SegmentMerge]]:
     segments_by_id = {seg.id: seg for seg in segments}
     cluster_of = dict(cluster_of)
     proteins_by_key = {p.key: p for p in proteins}
-    absorptions: list[Absorption] = []
+    merges: list[SegmentMerge] = []
 
-    by_protein: dict[str, list[str]] = defaultdict(list)
-    for seg in segments:
-        by_protein[seg.key].append(seg.id)
+    while True:
+        cluster_bgcs: dict[str, set[str]] = defaultdict(set)
+        for seg in segments_by_id.values():
+            cluster_bgcs[cluster_of[seg.id]].add(seg.bgc_id)
 
-    for key, seg_ids in by_protein.items():
-        protein = proteins_by_key[key]
-        pid = protein.protein_id or protein.local_key
+        by_protein: dict[str, list[Segment]] = defaultdict(list)
+        for seg in segments_by_id.values():
+            by_protein[seg.key].append(seg)
+        for key in by_protein:
+            by_protein[key].sort(key=lambda s: s.start)
 
-        while len(seg_ids) > 1:
-            seg_ids = sorted(seg_ids, key=lambda sid: segments_by_id[sid].start)
-            sizes = _cluster_bgc_counts(segments_by_id, cluster_of)
+        # (root_a, root_b) -> BGCs where a's protein has segment a directly followed by segment b
+        adjacency: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for segs in by_protein.values():
+            for a, b in zip(segs, segs[1:]):
+                if a.end != b.start:
+                    continue  # not contiguous -- leave any gap/overlap alone
+                ra, rb = cluster_of[a.id], cluster_of[b.id]
+                if ra != rb:
+                    adjacency[(ra, rb)].add(a.bgc_id)
 
-            merge_pair = None
-            for i in range(len(seg_ids) - 1):
-                a, b = segments_by_id[seg_ids[i]], segments_by_id[seg_ids[i + 1]]
-                size_a, size_b = sizes[cluster_of[a.id]], sizes[cluster_of[b.id]]
-                if size_a != size_b:
-                    merge_pair = (a, b) if size_a >= size_b else (b, a)  # tie favours the left segment
-                    break
-            if merge_pair is None:
+        target = None
+        for pair in sorted(adjacency):
+            ra, rb = pair
+            support = adjacency[pair]
+            if support == cluster_bgcs[ra] or support == cluster_bgcs[rb]:
+                target = pair
                 break
+        if target is None:
+            break
 
-            bigger, smaller = merge_pair
-            new_start, new_end = min(bigger.start, smaller.start), max(bigger.end, smaller.end)
-            new_seg = Segment(
-                id=f"{protein.bgc_id}|{pid}|{new_start + 1}-{new_end}",
-                key=key,
-                bgc_id=protein.bgc_id,
-                protein_id=protein.protein_id,
-                gene_name=protein.gene_name,
-                locus_tag=protein.locus_tag,
-                start=new_start,
-                end=new_end,
-            )
+        ra, rb = target
+        for segs in by_protein.values():
+            for a, b in zip(segs, segs[1:]):
+                if cluster_of.get(a.id) == ra and cluster_of.get(b.id) == rb:
+                    protein = proteins_by_key[a.key]
+                    pid = protein.protein_id or protein.local_key
+                    new_seg = Segment(
+                        id=f"{protein.bgc_id}|{pid}|{a.start + 1}-{b.end}",
+                        key=a.key,
+                        bgc_id=a.bgc_id,
+                        protein_id=a.protein_id,
+                        gene_name=a.gene_name,
+                        locus_tag=a.locus_tag,
+                        start=a.start,
+                        end=b.end,
+                    )
+                    del segments_by_id[a.id], segments_by_id[b.id]
+                    del cluster_of[a.id], cluster_of[b.id]
+                    segments_by_id[new_seg.id] = new_seg
+                    cluster_of[new_seg.id] = ra
+                    merges.append(SegmentMerge(a.key, f"{a.id} + {b.id}", new_seg.id))
+                    break  # a protein has at most one (ra,rb)-matching pair
 
-            root = cluster_of[bigger.id]
-            del segments_by_id[bigger.id], segments_by_id[smaller.id]
-            del cluster_of[bigger.id], cluster_of[smaller.id]
-            segments_by_id[new_seg.id] = new_seg
-            cluster_of[new_seg.id] = root
-            absorptions.append(Absorption(key, smaller.id, new_seg.id))
-
-            seg_ids = [sid for sid in seg_ids if sid not in (bigger.id, smaller.id)] + [new_seg.id]
-
-    return list(segments_by_id.values()), cluster_of, absorptions
+    return list(segments_by_id.values()), cluster_of, merges

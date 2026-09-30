@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 
 _HEADING_RE = re.compile(r"^(#+)( .*)?$")
+_SECTION_HEADING_RE = re.compile(r"^#+\s+(.*)$")
+_WARNING_HEADINGS = ("Warnings", "Flags")  # Phase 1 calls its section "Flags"; 2 and 3 call it "Warnings"
 
 
 def _demote_headings(text: str, by: int = 1) -> str:
@@ -25,37 +27,58 @@ def _demote_headings(text: str, by: int = 1) -> str:
     return "\n".join(lines)
 
 
+def _extract_warnings(text: str) -> list[str]:
+    """Pull the bullet/bold lines out of a sub-report's own Warnings/Flags section, so they can
+    be rolled up to the top of the combined report -- unusual or dropped data three files deep
+    is easy to miss otherwise.
+    """
+    lines = text.splitlines()
+    collected: list[str] = []
+    i = 0
+    while i < len(lines):
+        heading = _SECTION_HEADING_RE.match(lines[i])
+        if heading and heading.group(1).strip() in _WARNING_HEADINGS:
+            i += 1
+            while i < len(lines) and not _SECTION_HEADING_RE.match(lines[i]):
+                content = lines[i].strip()
+                if content and content != "None.":
+                    collected.append(content.lstrip("- "))
+                i += 1
+        else:
+            i += 1
+    return collected
+
+
 def write_combined_report(group_dir: Path) -> Path:
     group_dir = Path(group_dir)
     group_name = group_dir.name
+
+    steps = [
+        ("Step 1: Segment grouping", group_dir / "report.md", "scripts/segment_groups.py"),
+        ("Step 2: Pfam domains", group_dir / "pfam_report.md", "scripts/pfam_domains.py"),
+        ("Step 3: Rule conditions", group_dir / "rule_conditions.md", "scripts/build_rule.py"),
+    ]
+    texts = [(label, path.read_text().strip() if path.exists() else None, path, script) for label, path, script in steps]
+
     lines = [f"# Subcluster report: {group_name}", ""]
 
-    lines.append("## Step 1: Segment grouping")
+    lines.append("## Warnings")
     lines.append("")
-    segment_report = group_dir / "report.md"
-    if segment_report.exists():
-        lines.append(_demote_headings(segment_report.read_text().strip()))
+    warnings = [(label, w) for label, text, _, _ in texts if text for w in _extract_warnings(text)]
+    if warnings:
+        lines.extend(f"- [{label}] {w}" for label, w in warnings)
     else:
-        lines.append(f"*{segment_report.name} not found -- run scripts/segment_groups.py first.*")
+        lines.append("None.")
     lines.append("")
 
-    lines.append("## Step 2: Pfam domains")
-    lines.append("")
-    pfam_report = group_dir / "pfam_report.md"
-    if pfam_report.exists():
-        lines.append(_demote_headings(pfam_report.read_text().strip()))
-    else:
-        lines.append(f"*{pfam_report.name} not found -- run scripts/pfam_domains.py first.*")
-    lines.append("")
-
-    lines.append("## Step 3: Rule conditions")
-    lines.append("")
-    rule_conditions = group_dir / "rule_conditions.md"
-    if rule_conditions.exists():
-        lines.append(_demote_headings(rule_conditions.read_text().strip()))
-    else:
-        lines.append(f"*{rule_conditions.name} not found -- run scripts/build_rule.py first.*")
-    lines.append("")
+    for label, text, path, script in texts:
+        lines.append(f"## {label}")
+        lines.append("")
+        if text is not None:
+            lines.append(_demote_headings(text))
+        else:
+            lines.append(f"*{path.name} not found -- run {script} first.*")
+        lines.append("")
 
     out_path = group_dir / "combined_report.md"
     out_path.write_text("\n".join(lines))

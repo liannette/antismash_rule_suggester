@@ -130,20 +130,24 @@ class RuleConditions:
     conditions: str | None  # None if no core group has a representative domain
     extenders: str | None  # None if no non-core group has a representative domain
     repeated_domains: dict[str, list[str]] = field(default_factory=dict)  # domain -> group_ids folded into repeatable()
+    duplicate_condition_groups: dict[str, list[str]] = field(default_factory=dict)  # multi-domain term -> group_ids
+    redundant_extenders: list[tuple[str, str]] = field(default_factory=list)  # (dominated_group, dominating_group)
 
 
-def _core_terms(core: list[GroupSummary]) -> tuple[list[str], dict[str, list[str]]]:
+def _core_terms(core: list[GroupSummary]) -> tuple[list[str], dict[str, list[str]], dict[str, list[str]]]:
     """Core groups whose sole representative domain is shared with other core groups become one
     repeatable(N, [domain]) term instead of N redundant copies of the same bare id; every other
-    group keeps its own term (deduped if identical, e.g. two identical multi-domain groups).
+    group keeps its own term, deduped if identical (e.g. two different core groups both nominating
+    the exact same multi-domain combination -- reported via duplicate_condition_groups, since that
+    can't be folded into repeatable() the way a single shared domain can).
     """
     singleton_groups: dict[str, list[str]] = defaultdict(list)
-    other_terms: list[str] = []
+    other_group_ids_by_term: dict[str, list[str]] = defaultdict(list)
     for s in core:
         if len(s.representative_domains) == 1:
             singleton_groups[s.representative_domains[0]].append(s.group_id)
         else:
-            other_terms.append(_group_condition(s.representative_domains))
+            other_group_ids_by_term[_group_condition(s.representative_domains)].append(s.group_id)
 
     repeated_domains: dict[str, list[str]] = {}
     singleton_terms: list[str] = []
@@ -154,8 +158,30 @@ def _core_terms(core: list[GroupSummary]) -> tuple[list[str], dict[str, list[str
         else:
             singleton_terms.append(domain)
 
-    terms = list(dict.fromkeys(singleton_terms + other_terms))
-    return terms, repeated_domains
+    duplicate_condition_groups = {
+        term: group_ids for term, group_ids in other_group_ids_by_term.items() if len(group_ids) >= 2
+    }
+
+    terms = list(dict.fromkeys(singleton_terms + list(other_group_ids_by_term)))
+    return terms, repeated_domains, duplicate_condition_groups
+
+
+def _redundant_extenders(extra: list[GroupSummary]) -> list[tuple[str, str]]:
+    """EXTENDERS ORs each non-core group's AND-chain together. If one group's domain set is a
+    strict superset of another's, the superset group's clause is logically dead: whenever it's
+    satisfied, the subset group's (weaker) clause is already satisfied too, so the OR never needs
+    it. This doesn't change what gets written to EXTENDERS (removing it could hide a genuine
+    multi-domain signature that's independently informative) -- it's reported so it can be
+    reviewed by hand.
+    """
+    redundant = []
+    for s in extra:
+        domains = set(s.representative_domains)
+        for other in extra:
+            if other.group_id != s.group_id and domains > set(other.representative_domains):
+                redundant.append((s.group_id, other.group_id))
+                break
+    return redundant
 
 
 def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
@@ -166,7 +192,7 @@ def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
     core = [s for s in summaries if s.is_core and s.contributes]
     extra = [s for s in summaries if not s.is_core and s.contributes]
 
-    core_terms, repeated_domains = _core_terms(core)
+    core_terms, repeated_domains, duplicate_condition_groups = _core_terms(core)
     conditions = " and ".join(core_terms) if core_terms else None
 
     extenders = None
@@ -176,4 +202,10 @@ def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
         chain = " or ".join(extra_chains)
         extenders = chain if len(all_extra_names) == 1 else f"cds({chain})"
 
-    return RuleConditions(conditions=conditions, extenders=extenders, repeated_domains=repeated_domains)
+    return RuleConditions(
+        conditions=conditions,
+        extenders=extenders,
+        repeated_domains=repeated_domains,
+        duplicate_condition_groups=duplicate_condition_groups,
+        redundant_extenders=_redundant_extenders(extra),
+    )

@@ -17,13 +17,14 @@ def write_pfam_outputs(
     assignments: list[DomainAssignment],
     group_domains: list[GroupDomain],
     params: PfamParams,
+    all_group_ids: list[str],
     clan_map: dict[str, Clan] | None = None,
 ) -> None:
     clan_map = clan_map or {}
     _write_domains_tsv(out_dir / "domains.tsv", assignments, clan_map)
     _write_group_domains_tsv(out_dir / "group_domains.tsv", group_domains)
     (out_dir / "pfam_params.json").write_text(json.dumps(params.to_dict(), indent=2) + "\n")
-    _write_pfam_report(out_dir / "pfam_report.md", group_name, assignments, group_domains, params)
+    _write_pfam_report(out_dir / "pfam_report.md", group_name, assignments, group_domains, params, all_group_ids)
 
 
 def _write_domains_tsv(path: Path, assignments: list[DomainAssignment], clan_map: dict[str, Clan]) -> None:
@@ -77,12 +78,16 @@ def _write_pfam_report(
     assignments: list[DomainAssignment],
     group_domains: list[GroupDomain],
     params: PfamParams,
+    all_group_ids: list[str],
 ) -> None:
     lines = [f"# Pfam domain report: {group_name}", ""]
 
     by_group: dict[str, list[GroupDomain]] = {}
     for g in group_domains:
         by_group.setdefault(g.group_id, []).append(g)
+
+    no_hits: list[str] = []  # groups with zero Pfam domain hits at all -- would otherwise vanish silently
+    no_signature: list[str] = []  # groups with hits, but none reaching the signature threshold
 
     lines.append("## Domains per group")
     lines.append("")
@@ -92,9 +97,9 @@ def _write_pfam_report(
         "clan; signature domains with no clan assignment are automatically representative."
     )
     lines.append("")
-    for group_id in sorted(by_group):
+    for group_id in sorted(set(all_group_ids) | set(by_group)):
         rows = sorted(
-            by_group[group_id],
+            by_group.get(group_id, []),
             key=lambda g: (not g.is_signature, not g.is_representative, -g.prevalence, g.pfam_acc),
         )
         lines.append(f"### {group_id}")
@@ -108,8 +113,20 @@ def _write_pfam_report(
                     f"| {g.pfam_acc} | {g.pfam_name} | {clan} | {g.n_bgcs_with_domain}/{g.n_bgcs_total} | "
                     f"{'yes' if g.is_signature else 'no'} | {'yes' if g.is_representative else 'no'} |"
                 )
+            if not any(g.is_signature for g in rows):
+                no_signature.append(group_id)
+                lines.append("")
+                lines.append(
+                    f"**WARNING: no domain in {group_id} reaches the signature threshold** -- "
+                    "this group can't contribute to CONDITIONS/EXTENDERS in Step 3."
+                )
         else:
-            lines.append("None.")
+            no_hits.append(group_id)
+            lines.append(
+                f"**WARNING: no Pfam domain hits at all in {group_id}** -- it exists in Step 1's "
+                "segment grouping but has no signature/representative domain here, and can't "
+                "contribute to CONDITIONS/EXTENDERS in Step 3."
+            )
         lines.append("")
 
     straddling = [a for a in assignments if a.straddling]
@@ -124,6 +141,17 @@ def _write_pfam_report(
                 f"| {d.bgc_id} | {d.protein_id} | {d.pfam_acc} | {d.pfam_name} | "
                 f"{d.env_from + 1}-{d.env_to} | {a.frac_domain_in_segment:.2f} |"
             )
+    else:
+        lines.append("None.")
+    lines.append("")
+
+    lines.append("## Warnings")
+    lines.append("")
+    if no_hits or no_signature:
+        if no_hits:
+            lines.append(f"**No Pfam domain hits at all:** {', '.join(sorted(no_hits))}")
+        if no_signature:
+            lines.append(f"**Hits found, but none reach the signature threshold:** {', '.join(sorted(no_signature))}")
     else:
         lines.append("None.")
     lines.append("")

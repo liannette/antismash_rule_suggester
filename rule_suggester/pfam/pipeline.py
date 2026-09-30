@@ -75,7 +75,10 @@ def run_pfam(
             assignments, group_of_segment, n_bgcs_by_group, params, clan_map
         )
 
-        write_pfam_outputs(out_dir, group_name, assignments, group_domain_rows, params, clan_map)
+        write_pfam_outputs(
+            out_dir, group_name, assignments, group_domain_rows, params,
+            sorted(n_bgcs_by_group), clan_map,
+        )
 
         result = PfamGroupResult(
             group_name=group_name,

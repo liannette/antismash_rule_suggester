@@ -48,7 +48,8 @@ def render(group_name: str, summaries: list[GroupSummary], rule: RuleConditions)
     lines.append(
         "Every core group must contribute a hit. A group with no signature domain in Step 2 "
         "(no domain at 100% prevalence) has nothing to contribute and is left out of CONDITIONS "
-        "below -- that silently weakens the rule, so check the 'no' rows."
+        "below -- that silently weakens the rule, so check the 'no' rows (also listed under "
+        "Warnings)."
     )
     lines.append("")
     if core:
@@ -71,7 +72,7 @@ def render(group_name: str, summaries: list[GroupSummary], rule: RuleConditions)
         lines.append(f"CONDITIONS {rule.conditions}")
         lines.append("```")
     else:
-        lines.append("*No core group has a representative domain -- CONDITIONS can't be built.*")
+        lines.append("**WARNING: no core group has a representative domain -- CONDITIONS can't be built.**")
     lines.append("")
 
     lines.append("## Non-core groups (EXTENDERS)")
@@ -86,9 +87,42 @@ def render(group_name: str, summaries: list[GroupSummary], rule: RuleConditions)
             lines.append(f"EXTENDERS {rule.extenders}")
             lines.append("```")
         else:
-            lines.append("*No non-core group has a representative domain -- EXTENDERS can't be built.*")
+            lines.append("**WARNING: no non-core group has a representative domain -- EXTENDERS can't be built.**")
     else:
         lines.append("None -- every group is core.")
+    lines.append("")
+
+    lines.append("## Warnings")
+    lines.append("")
+    warnings: list[str] = []
+
+    missing_core = [s.group_id for s in core if not s.contributes]
+    if missing_core:
+        warnings.append(
+            f"**No signature domain, excluded from CONDITIONS:** {', '.join(missing_core)}"
+        )
+    missing_extra = [s.group_id for s in extra if not s.contributes]
+    if missing_extra:
+        warnings.append(
+            f"**No signature domain, excluded from EXTENDERS:** {', '.join(missing_extra)}"
+        )
+    if not core:
+        warnings.append("**No core groups at all** -- CONDITIONS can't anchor a rule on this product group.")
+    if rule.duplicate_condition_groups:
+        for term, group_ids in rule.duplicate_condition_groups.items():
+            warnings.append(
+                f"**Duplicate CONDITIONS term across different core groups:** {', '.join(group_ids)} "
+                f"all reduce to `{term}` -- can't be folded into repeatable() since it has more than "
+                "one domain; check whether these are genuinely distinct genes."
+            )
+    if rule.redundant_extenders:
+        for dominated, dominating in rule.redundant_extenders:
+            warnings.append(
+                f"**Redundant EXTENDERS clause:** {dominated}'s representative domains are a superset "
+                f"of {dominating}'s, so {dominated}'s term can never independently satisfy EXTENDERS "
+                f"-- {dominating} alone already covers it."
+            )
+    lines.extend(warnings if warnings else ["None."])
     lines.append("")
 
     return "\n".join(lines)

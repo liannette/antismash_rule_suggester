@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 
 from .clans import Clan
 from .params import PfamParams
-from .phase1_io import GroupMembership, SegmentRecord
+from ..phase1_io import GroupMembership, SegmentRecord
 from .scan import Domain
 
 

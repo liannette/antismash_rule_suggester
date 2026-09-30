@@ -13,12 +13,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..phase1_io import load_groups_tsv, load_segments_tsv
 from ..segments.io_fasta import Protein, discover_group_dirs, load_group_proteins
 from .clans import Clan, load_pfam_clans
 from .mapping import build_group_of_segment, compute_group_domains, map_domains_to_segments
 from .outputs import write_pfam_outputs
 from .params import PfamParams
-from .phase1_io import load_groups_tsv, load_segments_tsv
 from .scan import scan_pfam_domains
 
 

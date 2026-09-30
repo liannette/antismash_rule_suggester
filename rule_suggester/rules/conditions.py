@@ -1,5 +1,5 @@
 """Building antiSMASH-style rule CONDITIONS/EXTENDERS text from representative Pfam domains
-(spec Phase 3, building on Phase 2's per-group representative-domain selection).
+(Phase 3, building on Phase 2's per-group representative-domain selection in rule_suggester/pfam).
 
 CONDITIONS: one cds(...) per core group (present in every BGC of the product group), ANDed --
 a core group's representative domains must co-occur on the same CDS, and every core group must
@@ -40,7 +40,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .phase1_io import load_groups_tsv
+from ..phase1_io import load_groups_tsv
 
 
 def load_representative_domains(group_domains_tsv: Path) -> dict[str, list[str]]:

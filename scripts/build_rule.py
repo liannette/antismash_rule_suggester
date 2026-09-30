@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rule_suggester.pfam.rule_conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
+from rule_suggester.rules.conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
 
 
 def parse_args() -> argparse.Namespace:

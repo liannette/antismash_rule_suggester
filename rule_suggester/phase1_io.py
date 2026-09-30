@@ -1,7 +1,6 @@
-"""Reading phase-1 outputs (segments.tsv / groups.tsv) for phase-2 domain mapping.
-
-Phase 2 maps onto whatever segmentation phase 1 already produced and a human reviewed, rather
-than re-running DIAMOND/clustering -- so it reads the written TSVs back in, unchanged.
+"""Reading phase-1 outputs (segments.tsv / groups.tsv) -- shared by any later phase that maps
+onto whatever segmentation phase 1 already produced and a human reviewed, rather than re-running
+DIAMOND/clustering. Both pfam/ (phase 2) and rules/ (phase 3) read these back in, unchanged.
 """
 
 from __future__ import annotations

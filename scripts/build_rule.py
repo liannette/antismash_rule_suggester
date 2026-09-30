@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""CLI entry point for building antiSMASH-style CONDITIONS/EXTENDERS fragments from one segment
-group's representative Pfam domains (Phase 3, building on scripts/pfam_domains.py's Phase 2
-output).
+"""CLI entry point for building antiSMASH-style CONDITIONS/EXTENDERS fragments (and a CUTOFF
+estimate) from one segment group's representative Pfam domains (Phase 3, building on
+scripts/pfam_domains.py's Phase 2 output).
 
 CONDITIONS = core groups' representative domains, cds()-ANDed per group, ANDed across groups.
 EXTENDERS = non-core groups' representative domains, cds()-ANDed per group, ORed across groups.
+CUTOFF = estimated from real gene spacing in data/genbanks/<group>/<bgc_id>.gbk, when available
+(see rule_suggester.rules.gene_ranges); NEIGHBOURHOOD is always 0 (see render()).
 
-Writes only these two fragments plus the per-group detail behind them -- not a complete RULE
-block, since CATEGORY/CUTOFF/NEIGHBOURHOOD aren't derivable from segment/domain data and a
-placeholder default would misrepresent them as decided; fill those in by hand when wiring the
-fragments into an actual antiSMASH rule file.
+Otherwise writes only the two DSL fragments plus the per-group detail behind them -- not a
+complete RULE block, since CATEGORY isn't derivable from segment/domain/genbank data and a
+placeholder would misrepresent it as decided; fill that in by hand when wiring the fragments
+into an actual antiSMASH rule file.
 """
 
 import argparse
@@ -18,13 +20,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from rule_suggester.phase1_io import load_groups_tsv
 from rule_suggester.rules.conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
+from rule_suggester.rules.gene_ranges import BgcSpan, compute_bgc_spans, estimate_cutoff_kb
+
+DEFAULT_GENBANK_ROOT = Path(__file__).resolve().parent.parent / "data" / "genbanks"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--segment-dir", type=Path, required=True,
                          help="A single group's phase-1/2 output dir, e.g. output/segments/SCG0001_streptidine.")
+    parser.add_argument(
+        "--genbank-dir", type=Path, default=None,
+        help="Dir of <bgc_id>.gbk files for this product group's example BGCs, used to estimate "
+             f"CUTOFF from real gene spacing. Defaults to {DEFAULT_GENBANK_ROOT}/<segment-dir name>.",
+    )
     return parser.parse_args()
 
 
@@ -37,7 +48,14 @@ def _group_row(s: GroupSummary, include_bgcs: bool) -> str:
     return f"| {s.group_id} | {genes} | {domains} | {contributes} |"
 
 
-def render(group_name: str, summaries: list[GroupSummary], rule: RuleConditions) -> str:
+def render(
+    group_name: str,
+    summaries: list[GroupSummary],
+    rule: RuleConditions,
+    spans: list[BgcSpan],
+    cutoff: int | None,
+    genbank_dir: Path,
+) -> str:
     core = [s for s in summaries if s.is_core]
     extra = [s for s in summaries if not s.is_core]
 
@@ -92,10 +110,55 @@ def render(group_name: str, summaries: list[GroupSummary], rule: RuleConditions)
         lines.append("None -- every group is core.")
     lines.append("")
 
+    lines.append("## CUTOFF / NEIGHBOURHOOD estimate")
+    lines.append("")
+    unresolved_bgcs = [s.bgc_id for s in spans if s.span_kb is None]
+    partial_bgcs = [s for s in spans if s.span_kb is not None and s.unmatched]
+    try:
+        genbank_dir_display = genbank_dir.relative_to(Path.cwd())
+    except ValueError:
+        genbank_dir_display = genbank_dir
+    if spans:
+        lines.append(
+            f"CUTOFF is the largest genomic span (kb) seen across this product group's reference "
+            f"BGCs in `{genbank_dir_display}`, times a 1.2 safety margin, rounded up to the nearest 5 kb "
+            "-- it has to be at least as wide as the widest real example, or that BGC's own genes "
+            "wouldn't be merged into one candidate cluster. NEIGHBOURHOOD is always 0: "
+            "CONDITIONS/EXTENDERS already require every group's own domains, so there's no extra "
+            "accessory search radius left to justify."
+        )
+        lines.append("")
+        lines.append("| BGC | genes | matched in GenBank | span (kb) |")
+        lines.append("|---|---|---|---|")
+        for s in spans:
+            span_str = f"{s.span_kb:.1f}" if s.span_kb is not None else "unresolved"
+            lines.append(f"| {s.bgc_id} | {s.n_genes} | {s.n_matched}/{s.n_genes} | {span_str} |")
+        lines.append("")
+        if cutoff is not None:
+            lines.append("```")
+            lines.append(f"CUTOFF {cutoff}")
+            lines.append("NEIGHBOURHOOD 0")
+            lines.append("```")
+        else:
+            lines.append(
+                "**WARNING: no BGC's genes could be resolved against its GenBank file -- "
+                "CUTOFF can't be estimated.**"
+            )
+    else:
+        lines.append(
+            f"*No GenBank directory found at `{genbank_dir_display}` -- CUTOFF can't be estimated. "
+            f"Pass --genbank-dir, or add data/genbanks/{group_name}/<bgc_id>.gbk files.*"
+        )
+    lines.append("")
+
     lines.append("## Warnings")
     lines.append("")
     warnings: list[str] = []
 
+    if unresolved_bgcs:
+        warnings.append(f"**No GenBank file found for BGC(s):** {', '.join(unresolved_bgcs)}")
+    for s in partial_bgcs:
+        warnings.append(f"**Genes not found in {s.bgc_id}'s GenBank file:** {', '.join(s.unmatched)}")
     missing_core = [s.group_id for s in core if not s.contributes]
     if missing_core:
         warnings.append(
@@ -144,7 +207,16 @@ def main() -> int:
 
     summaries = build_group_summaries(groups_tsv, presence_tsv, group_domains_tsv)
     rule = build_conditions(summaries)
-    text = render(args.segment_dir.name, summaries, rule)
+
+    genbank_dir = args.genbank_dir or (DEFAULT_GENBANK_ROOT / args.segment_dir.name)
+    spans: list[BgcSpan] = []
+    cutoff = None
+    if genbank_dir.is_dir():
+        memberships = load_groups_tsv(groups_tsv)
+        spans = compute_bgc_spans(memberships, genbank_dir)
+        cutoff = estimate_cutoff_kb(spans)
+
+    text = render(args.segment_dir.name, summaries, rule, spans, cutoff, genbank_dir)
 
     out_path = args.segment_dir / "rule_conditions.md"
     out_path.write_text(text)

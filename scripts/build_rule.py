@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rule_suggester.phase1_io import load_groups_tsv
 from rule_suggester.rules.conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
 from rule_suggester.rules.gene_ranges import BgcSpan, compute_bgc_spans, estimate_cutoff_kb
-from rule_suggester.rules.product_names import load_product_names
+from rule_suggester.rules.product_names import load_product_names, sanitize_description
 
 DEFAULT_GENBANK_ROOT = Path(__file__).resolve().parent.parent / "data" / "genbanks"
 DEFAULT_SUBCLUSTER_GROUPS_JSON = Path(__file__).resolve().parent.parent / "data" / "subcluster_groups.json"
@@ -60,7 +60,7 @@ def render_rule_block(rule_id: str, description: str, cutoff: int | None, rule: 
     lines = [
         f"RULE {rule_id}",
         "    CATEGORY Subcluster",
-        f"    DESCRIPTION {description}",
+        f"    DESCRIPTION {sanitize_description(description)}",
         f"    CUTOFF {cutoff if cutoff is not None else '<unresolved -- see CUTOFF/NEIGHBOURHOOD estimate below>'}",
         "    NEIGHBOURHOOD 0",
     ]

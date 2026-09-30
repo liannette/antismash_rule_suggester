@@ -133,6 +133,7 @@ class RuleConditions:
     repeated_domains: dict[str, list[str]] = field(default_factory=dict)  # domain -> group_ids folded into repeatable()
     duplicate_condition_groups: dict[str, list[str]] = field(default_factory=dict)  # multi-domain term -> group_ids
     redundant_extenders: list[tuple[str, str]] = field(default_factory=list)  # (dominated_group, dominating_group)
+    redundant_with_conditions: list[str] = field(default_factory=list)  # non-core group_ids dropped from EXTENDERS
 
 
 def _core_terms(core: list[GroupSummary]) -> tuple[list[str], dict[str, list[str]], dict[str, list[str]]]:
@@ -196,12 +197,24 @@ def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
     core_terms, repeated_domains, duplicate_condition_groups = _core_terms(core)
     conditions = " and ".join(core_terms) if core_terms else None
 
+    # A non-core group whose every representative domain is already required by CONDITIONS (e.g.
+    # an accessory paralog nominating the same Pfam a core group already anchors on) contributes
+    # nothing to EXTENDERS: that OR-term is guaranteed satisfied whenever CONDITIONS is, making the
+    # whole EXTENDERS clause a no-op. Drop it and report it instead of silently building a rule
+    # that looks like it extends the cluster but never can.
+    core_domains = {d for s in core for d in s.representative_domains}
+    redundant_with_conditions = [s.group_id for s in extra if set(s.representative_domains) <= core_domains]
+    extra = [s for s in extra if not set(s.representative_domains) <= core_domains]
+
     extenders = None
     if extra:
         extra_chains = dict.fromkeys(" and ".join(s.representative_domains) for s in extra)
-        all_extra_names = [name for s in extra for name in s.representative_domains]
         chain = " or ".join(extra_chains)
-        extenders = chain if len(all_extra_names) == 1 else f"cds({chain})"
+        # antiSMASH's EXTENDERS grammar accepts a bare identifier or a cds(...) of 2+ identifiers,
+        # never cds() around a single one -- so only skip the wrapper when every non-core group
+        # reduces (after dedup) to the exact same single domain.
+        single_domain = len(extra_chains) == 1 and " and " not in next(iter(extra_chains))
+        extenders = chain if single_domain else f"cds({chain})"
 
     return RuleConditions(
         conditions=conditions,
@@ -210,4 +223,5 @@ def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
         repeated_domains=repeated_domains,
         duplicate_condition_groups=duplicate_condition_groups,
         redundant_extenders=_redundant_extenders(extra),
+        redundant_with_conditions=redundant_with_conditions,
     )

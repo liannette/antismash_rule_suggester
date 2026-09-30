@@ -129,6 +129,7 @@ def _group_condition(pfam_names: list[str]) -> str:
 class RuleConditions:
     conditions: str | None  # None if no core group has a representative domain
     extenders: str | None  # None if no non-core group has a representative domain
+    condition_terms: list[str] = field(default_factory=list)  # the same terms, unjoined -- for multi-line rendering
     repeated_domains: dict[str, list[str]] = field(default_factory=dict)  # domain -> group_ids folded into repeatable()
     duplicate_condition_groups: dict[str, list[str]] = field(default_factory=dict)  # multi-domain term -> group_ids
     redundant_extenders: list[tuple[str, str]] = field(default_factory=list)  # (dominated_group, dominating_group)
@@ -205,6 +206,7 @@ def build_conditions(summaries: list[GroupSummary]) -> RuleConditions:
     return RuleConditions(
         conditions=conditions,
         extenders=extenders,
+        condition_terms=core_terms,
         repeated_domains=repeated_domains,
         duplicate_condition_groups=duplicate_condition_groups,
         redundant_extenders=_redundant_extenders(extra),

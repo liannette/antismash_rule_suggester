@@ -1,6 +1,6 @@
 """Estimating antiSMASH RULE CUTOFF from real genomic gene spacing, using reference GenBank
-files for a product group's example BGCs (data/genbanks/<group>/<bgc_id>.gbk). Ported from the
-same approach in archived/rule_suggester/gene_ranges.py.
+files for a product group's example BGCs (data/genbanks/<group>/<bgc_id>.gbk). The CUTOFF is 
+estimated as an anchor radius: antiSMASH looks CUTOFF kb left and right of each anchor CDS.
 
 NEIGHBOURHOOD is not estimated here -- by design it's always 0 (see build_rule.py): CONDITIONS
 already requires every core group's own representative domains, so there's no extra accessory
@@ -46,13 +46,34 @@ class BgcSpan:
     n_genes: int
     n_matched: int
     unmatched: list[str] = field(default_factory=list)  # "gene_name (protein_id)" that couldn't be resolved
+    radius_kb: float | None = None  # None if no CONDITIONS gene could be matched
 
 
-def compute_bgc_spans(memberships: list[GroupMembership], genbank_dir: Path) -> list[BgcSpan]:
-    """One span per BGC in this product group: the genomic extent (kb) from the earliest gene
-    start to the latest gene end, among every gene phase 1 assigned to this product group --
-    core and non-core alike, since that's the real width of the known example locus, not just
-    the anchor genes.
+def _edge_distance(a: tuple[int, int], b: tuple[int, int]) -> int:
+    """Gap (bp) between two genes' nearest edges; 0 if they touch or overlap."""
+    return max(0, b[0] - a[1], a[0] - b[1])
+
+
+def _anchor_radius(coordinates: list[tuple[int, int]]) -> int:
+    """Smallest reach (bp) any one gene needs, measured outward from its own edges, to cover every
+    other gene -- i.e. the best anchor's worst-case distance. antiSMASH evaluates CONDITIONS on the
+    genes within CUTOFF of an anchor CDS on either side, so this is the tightest CUTOFF under which
+    some anchor sees all of them at once.
+    """
+    return min(max(_edge_distance(a, g) for g in coordinates) for a in coordinates)
+
+
+def compute_bgc_spans(
+    memberships: list[GroupMembership], genbank_dir: Path, condition_groups: set[str]
+) -> list[BgcSpan]:
+    """One entry per BGC in this product group, with two extents:
+
+    - span_kb: earliest gene start to latest gene end, among every gene phase 1 assigned to this
+      product group (core and non-core alike) -- the real width of the known example locus, kept
+      for reference.
+    - radius_kb: the anchor radius (see _anchor_radius) over only the genes in condition_groups,
+      i.e. the groups CONDITIONS requires. That's what CUTOFF is estimated from: genes outside
+      CONDITIONS don't need to be within CUTOFF for the rule to fire.
     """
     by_bgc: dict[str, list[GroupMembership]] = {}
     for m in memberships:
@@ -67,27 +88,31 @@ def compute_bgc_spans(memberships: list[GroupMembership], genbank_dir: Path) -> 
 
         record = SeqIO.read(gbk_path, "genbank")
         coordinates = []
+        condition_coordinates = []
         unmatched = []
         for g in genes:
             feature = _find_cds_feature(record, g.protein_id, g.gene_name)
             if feature is not None:
-                coordinates.append((int(feature.location.start), int(feature.location.end)))
+                location = (int(feature.location.start), int(feature.location.end))
+                coordinates.append(location)
+                if g.group_id in condition_groups:
+                    condition_coordinates.append(location)
             else:
                 unmatched.append(f"{g.gene_name or '?'} ({g.protein_id or '?'})")
 
         span_kb = (max(e for _, e in coordinates) - min(s for s, _ in coordinates)) / 1000 if coordinates else None
-        spans.append(BgcSpan(bgc_id, span_kb, len(genes), len(coordinates), unmatched))
+        radius_kb = _anchor_radius(condition_coordinates) / 1000 if condition_coordinates else None
+        spans.append(BgcSpan(bgc_id, span_kb, len(genes), len(coordinates), unmatched, radius_kb))
     return spans
 
 
-def estimate_cutoff_kb(spans: list[BgcSpan], margin: float = 1.2, round_to: int = 5) -> int | None:
-    """CUTOFF (kb): the largest observed genomic span across all resolvable example BGCs, scaled
-    by a safety margin so the estimate isn't a knife-edge fit to exactly the widest example, then
-    rounded up to the nearest round_to kb. CUTOFF needs to be at least as wide as the widest real
-    example, or that BGC's own genes wouldn't be merged into one candidate cluster. None if no
-    BGC's genes could be resolved at all.
+def estimate_cutoff_kb(spans: list[BgcSpan], round_to: int = 5) -> int | None:
+    """CUTOFF (kb): the largest anchor radius across all resolvable example BGCs, rounded up to the
+    nearest round_to kb. CUTOFF needs to be at least every example's radius, or that BGC's
+    CONDITIONS genes would never all fall within CUTOFF of a single anchor. None if no BGC's
+    CONDITIONS genes could be resolved at all.
     """
-    resolvable = [s.span_kb for s in spans if s.span_kb is not None]
+    resolvable = [s.radius_kb for s in spans if s.radius_kb is not None]
     if not resolvable:
         return None
-    return math.ceil(max(resolvable) * margin / round_to) * round_to
+    return math.ceil(max(resolvable) / round_to) * round_to

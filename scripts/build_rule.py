@@ -238,19 +238,23 @@ def render(
         genbank_dir_display = genbank_dir
     if spans:
         lines.append(
-            f"CUTOFF is the largest genomic span (kb) seen across this product group's reference "
-            f"BGCs in `{genbank_dir_display}`, times a 1.2 safety margin, rounded up to the nearest 5 kb "
-            "-- it has to be at least as wide as the widest real example, or that BGC's own genes "
-            "wouldn't be merged into one candidate cluster. NEIGHBOURHOOD is always 0: "
-            "CONDITIONS/EXTENDERS already require every group's own domains, so there's no extra "
-            "accessory search radius left to justify."
+            "antiSMASH looks CUTOFF kb to the left and right of each anchor CDS, so CUTOFF is a radius, "
+            "not the width of the whole locus. Per reference BGC in "
+            f"`{genbank_dir_display}`, the radius is the smallest reach (edge to edge) that one "
+            "CONDITIONS gene needs to cover every other CONDITIONS gene. CUTOFF is the largest radius "
+            "across BGCs, rounded up to the nearest 5 kb -- below that, "
+            "some example's CONDITIONS genes never all fall within CUTOFF of a single anchor. The "
+            "full span (all genes in the group, core and non-core) is shown for reference only. "
+            "NEIGHBOURHOOD is always 0: CONDITIONS/EXTENDERS already require every group's own "
+            "domains, so there's no extra accessory search radius left to justify."
         )
         lines.append("")
-        lines.append("| BGC | genes | matched in GenBank | span (kb) |")
-        lines.append("|---|---|---|---|")
+        lines.append("| BGC | genes | matched in GenBank | span (kb) | radius (kb) |")
+        lines.append("|---|---|---|---|---|")
         for s in spans:
             span_str = f"{s.span_kb:.1f}" if s.span_kb is not None else "unresolved"
-            lines.append(f"| {s.bgc_id} | {s.n_genes} | {s.n_matched}/{s.n_genes} | {span_str} |")
+            radius_str = f"{s.radius_kb:.1f}" if s.radius_kb is not None else "unresolved"
+            lines.append(f"| {s.bgc_id} | {s.n_genes} | {s.n_matched}/{s.n_genes} | {span_str} | {radius_str} |")
         lines.append("")
         if cutoff is not None:
             lines.append("```")
@@ -299,7 +303,8 @@ def main() -> int:
     cutoff = None
     if genbank_dir.is_dir():
         memberships = load_groups_tsv(groups_tsv)
-        spans = compute_bgc_spans(memberships, genbank_dir)
+        condition_groups = {s.group_id for s in summaries if s.is_core and s.contributes}
+        spans = compute_bgc_spans(memberships, genbank_dir, condition_groups)
         cutoff = estimate_cutoff_kb(spans)
 
     rule_id = args.segment_dir.name.split("_", 1)[0]

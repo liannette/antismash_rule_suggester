@@ -13,6 +13,8 @@ EXTENDERS = non-core groups' representative domains, cds()-ANDed per group, ORed
 Also writes rule_conditions.md: the same block plus the per-group detail and warnings behind it,
 for review -- the domain selection (CONDITIONS/EXTENDERS content) is not guaranteed correct and
 may need manual editing; that detail is there to make checking it easier.
+
+--segments-dir accepts the same single-group-or-parent-directory semantics as the other scripts.
 """
 
 import argparse
@@ -32,12 +34,17 @@ DEFAULT_SUBCLUSTER_GROUPS_JSON = Path(__file__).resolve().parent.parent / "data"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--segment-dir", type=Path, required=True,
-                         help="A single group's phase-1/2 output dir, e.g. output/segments/SCG0001_streptidine.")
+    parser.add_argument("--segments-dir", "--segment-dir", dest="segments_dir", type=Path, required=True,
+                         help="A single group's phase-1/2 output dir (e.g. output/segments/SCG0001_streptidine), "
+                              "or a parent dir of them (e.g. output/segments).")
     parser.add_argument(
         "--genbank-dir", type=Path, default=None,
-        help="Dir of <bgc_id>.gbk files for this product group's example BGCs, used to estimate "
-             f"CUTOFF from real gene spacing. Defaults to {DEFAULT_GENBANK_ROOT}/<segment-dir name>.",
+        help="Single group only: dir of <bgc_id>.gbk files for this product group's example BGCs, "
+             "used to estimate CUTOFF from real gene spacing. Overrides --genbank-root.",
+    )
+    parser.add_argument(
+        "--genbank-root", type=Path, default=DEFAULT_GENBANK_ROOT,
+        help="Parent of per-group GenBank dirs; each group uses <genbank-root>/<group dir name>.",
     )
     parser.add_argument(
         "--subcluster-groups-json", type=Path, default=DEFAULT_SUBCLUSTER_GROUPS_JSON,
@@ -281,24 +288,39 @@ def render(
     return "\n".join(lines)
 
 
-def main() -> int:
-    args = parse_args()
-    groups_tsv = args.segment_dir / "groups.tsv"
-    presence_tsv = args.segment_dir / "presence.tsv"
-    group_domains_tsv = args.segment_dir / "group_domains.tsv"
+def _is_group_dir(path: Path) -> bool:
+    return (path / "groups.tsv").exists()
+
+
+def discover_group_dirs(segments_dir: Path) -> list[Path]:
+    if not segments_dir.is_dir():
+        raise ValueError(f"--segments-dir {segments_dir} is not a directory")
+    if _is_group_dir(segments_dir):
+        return [segments_dir]
+    group_dirs = sorted(p for p in segments_dir.iterdir() if p.is_dir() and _is_group_dir(p))
+    if not group_dirs:
+        raise ValueError(f"{segments_dir} contains no group directories with a groups.tsv")
+    return group_dirs
+
+
+def build_group_rule(
+    segment_dir: Path, genbank_dir: Path, subcluster_groups_json: Path, product_names: dict[str, str]
+) -> tuple[str, list[str]]:
+    """Build one group's rule_conditions.md and rule.txt; returns (rule_conditions text, warnings).
+    Raises FileNotFoundError if the group's phase-1/2 inputs are incomplete.
+    """
+    groups_tsv = segment_dir / "groups.tsv"
+    presence_tsv = segment_dir / "presence.tsv"
+    group_domains_tsv = segment_dir / "group_domains.tsv"
     missing = [p.name for p in (groups_tsv, presence_tsv, group_domains_tsv) if not p.exists()]
     if missing:
-        print(
-            f"error: {args.segment_dir} is missing {', '.join(missing)} "
-            "(run segment_groups.py and pfam_domains.py first)",
-            file=sys.stderr,
+        raise FileNotFoundError(
+            f"{segment_dir} is missing {', '.join(missing)} (run segment_groups.py and pfam_domains.py first)"
         )
-        return 1
 
     summaries = build_group_summaries(groups_tsv, presence_tsv, group_domains_tsv)
     rule = build_conditions(summaries)
 
-    genbank_dir = args.genbank_dir or (DEFAULT_GENBANK_ROOT / args.segment_dir.name)
     spans: list[BgcSpan] = []
     cutoff = None
     if genbank_dir.is_dir():
@@ -307,8 +329,7 @@ def main() -> int:
         spans = compute_bgc_spans(memberships, genbank_dir, condition_groups)
         cutoff = estimate_cutoff_kb(spans)
 
-    rule_id = args.segment_dir.name.split("_", 1)[0]
-    product_names = load_product_names(args.subcluster_groups_json) if args.subcluster_groups_json.exists() else {}
+    rule_id = segment_dir.name.split("_", 1)[0]
     description = product_names.get(rule_id)
 
     core = [s for s in summaries if s.is_core]
@@ -316,26 +337,56 @@ def main() -> int:
     unresolved_bgcs = [s.bgc_id for s in spans if s.span_kb is None]
     partial_bgcs = [s for s in spans if s.span_kb is not None and s.unmatched]
     warnings = build_warnings(
-        core, extra, rule, unresolved_bgcs, partial_bgcs, description, rule_id, args.subcluster_groups_json,
+        core, extra, rule, unresolved_bgcs, partial_bgcs, description, rule_id, subcluster_groups_json,
     )
 
     text = render(
-        args.segment_dir.name, summaries, rule, spans, cutoff, genbank_dir,
+        segment_dir.name, summaries, rule, spans, cutoff, genbank_dir,
         rule_id, description, warnings,
     )
+    (segment_dir / "rule_conditions.md").write_text(text)
 
-    out_path = args.segment_dir / "rule_conditions.md"
-    out_path.write_text(text)
-
-    rule_block_path = args.segment_dir / "rule.txt"
     rule_block_lines = render_rule_block_with_warnings(
         rule_id, description or "<unknown>", cutoff, rule, warnings,
     )
-    rule_block_path.write_text("\n".join(rule_block_lines) + "\n")
+    (segment_dir / "rule.txt").write_text("\n".join(rule_block_lines) + "\n")
+    return text, warnings
 
-    print(text)
-    print(f"Written to {out_path} and {rule_block_path}", file=sys.stderr)
-    return 0
+
+def main() -> int:
+    args = parse_args()
+    try:
+        group_dirs = discover_group_dirs(args.segments_dir)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    single_group = len(group_dirs) == 1 and group_dirs[0] == args.segments_dir
+    if args.genbank_dir is not None and not single_group:
+        print("error: --genbank-dir only applies to a single group; use --genbank-root instead", file=sys.stderr)
+        return 1
+
+    product_names = load_product_names(args.subcluster_groups_json) if args.subcluster_groups_json.exists() else {}
+
+    failed = []
+    for group_dir in group_dirs:
+        genbank_dir = args.genbank_dir or (args.genbank_root / group_dir.name)
+        try:
+            text, warnings = build_group_rule(group_dir, genbank_dir, args.subcluster_groups_json, product_names)
+        except FileNotFoundError as e:
+            print(f"error: {e}", file=sys.stderr)
+            failed.append(group_dir.name)
+            continue
+
+        if single_group:
+            print(text)
+            print(f"Written to {group_dir / 'rule_conditions.md'} and {group_dir / 'rule.txt'}", file=sys.stderr)
+        else:
+            status = f"{len(warnings)} warning(s)" if warnings else "ok"
+            print(f"  {group_dir.name}: {status}")
+
+    if not single_group:
+        print(f"Done: {len(group_dirs) - len(failed)} group(s) built, {len(failed)} failed.")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

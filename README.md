@@ -101,7 +101,7 @@ python scripts/build_compound_details.py --rules-file output/subcluster_rules.tx
 python scripts/extract_rule_hmms.py --rules-file output/subcluster_rules.txt --out-dir output/hmms
 ```
 
-Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP/smCOG model the rules reference (PGAP models under their rule name), plus `cutoffs.tsv`. Each `.hmm`'s GA line is the cutoff antiSMASH should use, and `cutoffs.tsv` lists them for `hmmdetails.txt`: a cutoff override if there is one, PGAP models GA x 0.9 (`--pgap-cutoff-factor`; step 2 picks PGAP representatives at the full GA, the lower antiSMASH cutoff leaves room for homologs that score a little lower), the curated cutoff for smCOGs, otherwise Pfam GA.
+Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP/smCOG model the rules reference (PGAP models under their rule name), plus `cutoffs.tsv`. Each `.hmm`'s GA line is the cutoff antiSMASH should use (the same as in step 2), and `cutoffs.tsv` lists them for `hmmdetails.txt`: a cutoff override if there is one, the curated cutoff for smCOGs, otherwise the model's GA (Pfam, TIGRFAM, NCBIFAM).
 
 ### Notes
 

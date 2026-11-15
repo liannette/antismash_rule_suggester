@@ -10,13 +10,10 @@ one-file-per-domain convention antiSMASH's subclusters module data/ directory al
 (antismash/antismash/detection/subclusters/data/) -- ready to drop straight into it, alongside a
 matching hmmdetails.txt entry (not generated here; cutoffs.tsv lists the cutoff to use).
 
-Each .hmm's GA line is set to the cutoff antiSMASH should use:
+Each .hmm's GA line is set to the cutoff antiSMASH should use, the same one step 2 used:
   - a cutoff override (data/pfam/cutoff_overrides.tsv), if the model has one
-  - PGAP models: GA x --pgap-cutoff-factor (default 0.9). Step 2 picks PGAP representatives at the
-    full GA, so they're well supported by the examples; the lower antiSMASH cutoff leaves room for
-    homologs in new genomes that score a little lower
   - smCOGs: the curated cutoff (data/smcogs/smcog_profiles.tsv)
-  - otherwise the model's own GA
+  - otherwise the model's own GA (Pfam, TIGRFAM, NCBIFAM)
 """
 
 import argparse
@@ -42,7 +39,6 @@ DEFAULT_PGAP_METADATA = DATA / "ncbi_pgap" / "hmm_PGAP.tsv"
 DEFAULT_SMCOG_HMM = DATA / "smcogs" / "smcogs.hmm"
 DEFAULT_SMCOG_PROFILES = DATA / "smcogs" / "smcog_profiles.tsv"
 DEFAULT_CUTOFF_OVERRIDES = DATA / "pfam" / "cutoff_overrides.tsv"
-DEFAULT_PGAP_CUTOFF_FACTOR = 0.9
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,8 +57,6 @@ def parse_args() -> argparse.Namespace:
                               "with the curated cutoff as GA. Used if the file exists.")
     parser.add_argument("--cutoff-overrides", type=Path, default=DEFAULT_CUTOFF_OVERRIDES,
                          help="Cutoff overrides as for step 2; used if the file exists.")
-    parser.add_argument("--pgap-cutoff-factor", type=float, default=DEFAULT_PGAP_CUTOFF_FACTOR,
-                         help="antiSMASH cutoff for PGAP models = GA x this factor (default %(default)s).")
     parser.add_argument("--out-dir", type=Path, required=True,
                          help="Directory to write one <domain>.hmm file per referenced profile into.")
     return parser.parse_args()
@@ -105,9 +99,7 @@ def main() -> int:
                 if acc in overrides:
                     cutoff, reason = (overrides[acc],) * 2, "cutoff override"
                 elif kind == "PGAP":
-                    source = pgap.model(_text(hmm.accession)).source
-                    cutoff = (ga[0] * args.pgap_cutoff_factor, ga[1] * args.pgap_cutoff_factor)
-                    reason = f"{source} GA x {args.pgap_cutoff_factor:g}"
+                    cutoff, reason = ga, f"{pgap.model(_text(hmm.accession)).source} GA"
                 else:
                     cutoff, reason = ga, ("curated smCOG cutoff" if kind == "smCOG" else "Pfam GA")
                 hmm.cutoffs.gathering = (round(cutoff[0], 2), round(cutoff[1], 2))

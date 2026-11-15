@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CLI entry point for extracting per-domain HMM profiles for every identifier referenced in a
 combined rules file (scripts/combine_rules.py's output), from Pfam-A.hmm and the NCBI PGAP library.
+Curated smCOG profiles (data/smcogs/smcog_profiles.tsv) are written as <SMCOGxxxx>.hmm with their cutoff as GA.
 PGAP models are written under their rule name (rule_suggester.pfam.libraries.pgap_rule_name), the
 same name step 2 gave them, with the HMM NAME line set to it.
 
@@ -17,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.export.parse import extract_domain_ids
-from rule_suggester.pfam.libraries import PgapLibrary, iter_hmm_file, load_pfam_names
+from rule_suggester.pfam.libraries import PgapLibrary, SmcogLibrary, iter_hmm_file, load_pfam_names, load_smcog_profiles
 
 
 def _text(value: bytes | str) -> str:
@@ -28,6 +29,8 @@ DEFAULT_PFAM_HMM = DATA / "pfam" / "Pfam-A.hmm"
 DEFAULT_PFAM_CLANS = DATA / "pfam" / "Pfam-A.clans.tsv"
 DEFAULT_PGAP_HMM = DATA / "ncbi_pgap" / "hmm_PGAP.HMM.tgz"
 DEFAULT_PGAP_METADATA = DATA / "ncbi_pgap" / "hmm_PGAP.tsv"
+DEFAULT_SMCOG_HMM = DATA / "smcogs" / "smcogs.hmm"
+DEFAULT_SMCOG_PROFILES = DATA / "smcogs" / "smcog_profiles.tsv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,7 +42,11 @@ def parse_args() -> argparse.Namespace:
                          help="Pfam-A.clans.tsv, for the Pfam names PGAP rule names must not collide with.")
     parser.add_argument("--pgap-hmm", type=Path, default=DEFAULT_PGAP_HMM)
     parser.add_argument("--pgap-metadata", type=Path, default=DEFAULT_PGAP_METADATA)
-    parser.add_argument("--no-pgap", action="store_true", help="Look in Pfam only.")
+    parser.add_argument("--no-pgap", action="store_true", help="Don't look in PGAP.")
+    parser.add_argument("--smcog-hmm", type=Path, default=DEFAULT_SMCOG_HMM)
+    parser.add_argument("--smcog-profiles", type=Path, default=DEFAULT_SMCOG_PROFILES,
+                         help="Curated smCOG list (as for step 2); its profiles are written as <SMCOGxxxx>.hmm "
+                              "with the curated cutoff as GA. Used if the file exists.")
     parser.add_argument("--out-dir", type=Path, required=True,
                          help="Directory to write one <domain>.hmm file per referenced profile into.")
     return parser.parse_args()
@@ -65,6 +72,9 @@ def main() -> int:
     if not args.no_pgap:
         pgap = PgapLibrary.load(args.pgap_hmm, args.pgap_metadata, load_pfam_names(args.pfam_clans))
         libraries.append((args.pgap_hmm.name, pgap.iter_hmms))
+    if args.smcog_profiles.exists() and any(name.startswith("SMCOG") for name in wanted):
+        smcog = SmcogLibrary(args.smcog_hmm, load_smcog_profiles(args.smcog_profiles))
+        libraries.append((args.smcog_hmm.name, smcog.iter_hmms))
     for label, hmms in libraries:
         if found == wanted:
             break

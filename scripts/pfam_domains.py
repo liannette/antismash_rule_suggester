@@ -3,7 +3,8 @@
 
 Reads phase-1 outputs (segments.tsv / groups.tsv, from scripts/segment_groups.py) and maps domains
 -- found by hmmsearch of Pfam and the NCBI PGAP library (TIGRFAM, NCBIFAM, PRK) on the original
-full-length proteins -- onto them. PGAP is searched unless --no-pgap is given. --fasta-dir has
+full-length proteins -- onto them. PGAP is searched unless --no-pgap is given; the curated antiSMASH
+smCOG profiles in data/smcogs/smcog_profiles.tsv too, if that file exists. --fasta-dir has
 the same single-group-or-parent-directory semantics as scripts/segment_groups.py.
 """
 
@@ -14,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.pfam.cutoffs import load_cutoff_overrides
-from rule_suggester.pfam.libraries import PgapLibrary
+from rule_suggester.pfam.libraries import PgapLibrary, load_smcog_profiles
 from rule_suggester.pfam.params import PfamParams
 from rule_suggester.pfam.pipeline import run_pfam
 
@@ -25,6 +26,9 @@ DEFAULT_CUTOFF_OVERRIDES = DATA_PFAM_DIR / "cutoff_overrides.tsv"
 DATA_PGAP_DIR = Path(__file__).resolve().parent.parent / "data" / "ncbi_pgap"
 DEFAULT_PGAP_HMM = DATA_PGAP_DIR / "hmm_PGAP.HMM.tgz"
 DEFAULT_PGAP_METADATA = DATA_PGAP_DIR / "hmm_PGAP.tsv"
+PROJECT = Path(__file__).resolve().parent.parent
+DEFAULT_SMCOG_HMM = PROJECT / "data" / "smcogs" / "smcogs.hmm"  # from antismash/detection/genefunctions/tools/data/
+DEFAULT_SMCOG_PROFILES = PROJECT / "data" / "smcogs" / "smcog_profiles.tsv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,7 +46,12 @@ def parse_args() -> argparse.Namespace:
                               "or a concatenated HMMER3 file. Default: %(default)s")
     parser.add_argument("--pgap-metadata", type=Path, default=DEFAULT_PGAP_METADATA,
                          help="hmm_PGAP.tsv (labels, family types, product names). Default: %(default)s")
-    parser.add_argument("--no-pgap", action="store_true", help="Search Pfam only.")
+    parser.add_argument("--no-pgap", action="store_true", help="Don't search PGAP.")
+    parser.add_argument("--smcog-hmm", type=Path, default=DEFAULT_SMCOG_HMM,
+                         help="antiSMASH smcogs.hmm. Default: %(default)s")
+    parser.add_argument("--smcog-profiles", type=Path, default=DEFAULT_SMCOG_PROFILES,
+                         help="TSV (smcog_id, cutoff, note) of the smCOG profiles to search, with bitscore cutoffs. "
+                              "Used if the file exists; default: %(default)s")
     parser.add_argument("--cutoff-overrides", type=Path, default=DEFAULT_CUTOFF_OVERRIDES,
                          help="TSV (pfam_acc, cutoff, note) of Pfam/PGAP models whose GA is replaced by a bitscore "
                               "cutoff. Used if the file exists; default: %(default)s")
@@ -69,6 +78,21 @@ def main() -> int:
                       file=sys.stderr)
                 return 1
 
+    smcog_profiles: dict[str, float] = {}
+    if args.smcog_profiles.exists():
+        try:
+            smcog_profiles = load_smcog_profiles(args.smcog_profiles)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if smcog_profiles and not args.smcog_hmm.exists():
+            print(f"smCOG HMM file not found at {args.smcog_hmm}. Stopping.", file=sys.stderr)
+            return 1
+        print(f"smCOG profiles from {args.smcog_profiles}: "
+              + (", ".join(f"{s} cutoff {c:g}" for s, c in sorted(smcog_profiles.items())) or "none"))
+    else:
+        print(f"No smCOG profile list at {args.smcog_profiles}: no smCOGs searched.")
+
     overrides: dict[str, float] = {}
     if args.cutoff_overrides.exists():
         try:
@@ -79,6 +103,7 @@ def main() -> int:
         known = {line.split("\t", 1)[0] for line in args.pfam_clans.open() if line.strip()}
         if not args.no_pgap:
             known |= PgapLibrary.load(args.pgap_hmm, args.pgap_metadata, set()).accessions()
+        known |= set(smcog_profiles)
         unknown = sorted(set(overrides) - known)
         if unknown:
             print(f"error: {args.cutoff_overrides} lists model(s) in neither Pfam nor PGAP: "
@@ -87,7 +112,7 @@ def main() -> int:
         print(f"Cutoff overrides from {args.cutoff_overrides}: "
               + (", ".join(f"{a} {c:g}" for a, c in sorted(overrides.items())) or "none"))
     else:
-        print(f"No cutoff overrides file at {args.cutoff_overrides}: every Pfam uses GA.")
+        print(f"No cutoff overrides file at {args.cutoff_overrides}: every model uses GA.")
 
     params = PfamParams(
         hmm_path=args.pfam_hmm,
@@ -97,6 +122,8 @@ def main() -> int:
         cutoff_overrides=overrides,
         pgap_hmm_path=None if args.no_pgap else args.pgap_hmm,
         pgap_metadata_path=None if args.no_pgap else args.pgap_metadata,
+        smcog_hmm_path=args.smcog_hmm if smcog_profiles else None,
+        smcog_profiles=smcog_profiles,
     )
 
     try:

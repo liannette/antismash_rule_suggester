@@ -84,7 +84,9 @@ def _write_pfam_report(
     lines = [f"# Pfam/PGAP domain report: {group_name}", ""]
     libraries = f"Pfam ({params.hmm_path.name})"
     if params.pgap_hmm_path is not None:
-        libraries += f" and NCBI PGAP ({params.pgap_hmm_path.name}: TIGRFAM, NCBIFAM, PRK)"
+        libraries += f", NCBI PGAP ({params.pgap_hmm_path.name}: TIGRFAM, NCBIFAM, PRK)"
+    if params.smcog_hmm_path is not None and params.smcog_profiles:
+        libraries += ", curated smCOGs (" + ", ".join(f"{s} cutoff {c:g}" for s, c in sorted(params.smcog_profiles.items())) + ")"
     lines += [f"Libraries searched: {libraries}, each model at its gathering threshold (GA) unless overridden.", ""]
 
     by_group: dict[str, list[GroupDomain]] = {}
@@ -98,8 +100,9 @@ def _write_pfam_report(
     lines.append("")
     lines.append(f"Signature = prevalence >= {params.min_prevalence} and not straddling.")
     lines.append(
-        f"Representative: {'/'.join(params.representative_pgap_sources)} signature models first (most specific family type, "
-        "then best E-value; overlapping ones compete; other PGAP models such as PRK are listed but never representative). A Pfam signature domain covered by a PGAP representative is "
+        f"Representative: curated smCOG signature profiles first, then {'/'.join(params.representative_pgap_sources)} "
+        "signature models (most specific family type, then best E-value); a model overlapping one chosen earlier is "
+        "left out; other PGAP models such as PRK are listed but never representative. A Pfam signature domain covered by an smCOG/PGAP representative is "
         f"replaced by it (>= {params.replace_overlap:.0%} of the Pfam envelope in most subclusters). Remaining Pfam "
         "signature domains: the best (lowest) independent E-value per clan; Pfams with no clan are "
         "automatically representative."

@@ -87,7 +87,7 @@ class GroupDomain:
     source: str = "Pfam"
     family_type: str = ""
     description: str = ""
-    replaced_by: str = ""  # signature not representative because this PGAP representative covers it
+    replaced_by: str = ""  # signature not representative because this smCOG/PGAP representative covers it
 
 
 Envelopes = dict[tuple[str, str], dict[str, list[tuple[int, int]]]]  # (group, acc) -> sc -> envelopes
@@ -181,10 +181,11 @@ def _select_representatives(
     rows: list[GroupDomain], envelopes: Envelopes, min_share: float, pgap_sources: tuple[str, ...]
 ) -> list[GroupDomain]:
     """Within each group, among signature models:
-    1. PGAP models from pgap_sources (TIGRFAM, NCBIFAM; not PRK): most specific family type first
-       (then best i-Evalue); one overlapping a model already chosen is left out (replaced_by it).
-       PGAP models from other sources are never representative and replace nothing.
-    2. Pfam: a domain covered by a chosen PGAP representative is left out (replaced_by it).
+    1. Curated smCOG profiles (best i-Evalue first), then PGAP models from pgap_sources (TIGRFAM,
+       NCBIFAM; not PRK; most specific family type first, then best i-Evalue). A model overlapping
+       one already chosen is left out (replaced_by it). PGAP models from other sources are never
+       representative and replace nothing.
+    2. Pfam: a domain covered by a chosen smCOG/PGAP representative is left out (replaced_by it).
     3. Remaining Pfam: one representative per clan, the best (lowest) independent E-value; Pfams
        with no clan compete with nobody, so each is its own representative.
     """
@@ -199,8 +200,10 @@ def _select_representatives(
         representatives: set[str] = set()
 
         chosen_pgap: list[GroupDomain] = []
-        for g in sorted((g for g in signature if g.source in pgap_sources),
-                        key=lambda g: (_FAMILY_RANK.get(g.family_type, 5), g.best_i_evalue, g.pfam_acc)):
+        smcog_tier = sorted((g for g in signature if g.source == "smCOG"), key=lambda g: (g.best_i_evalue, g.pfam_acc))
+        pgap_tier = sorted((g for g in signature if g.source in pgap_sources),
+                           key=lambda g: (_FAMILY_RANK.get(g.family_type, 5), g.best_i_evalue, g.pfam_acc))
+        for g in smcog_tier + pgap_tier:
             winner = next((c for c in chosen_pgap
                            if _covers(envelopes, group_id, c.pfam_acc, g.pfam_acc, min_share)
                            or _covers(envelopes, group_id, g.pfam_acc, c.pfam_acc, min_share)), None)

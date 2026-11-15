@@ -105,3 +105,50 @@ class PgapLibrary:
             acc = _text(hmm.accession)
             hmm.name = pgap_rule_name(self.model(acc).label, acc, self.pfam_names)
             yield hmm
+
+
+def load_smcog_profiles(path: Path) -> dict[str, float]:
+    """Curated smCOG profiles to search, and their bitscore cutoffs (smCOGs have no GA).
+    Tab-separated, header `smcog_id  cutoff  note`, `#` lines are comments."""
+    profiles: dict[str, float] = {}
+    with Path(path).open(newline="") as f:
+        rows = csv.DictReader((line for line in f if line.strip() and not line.startswith("#")), delimiter="\t")
+        if rows.fieldnames is None or not {"smcog_id", "cutoff"} <= set(rows.fieldnames):
+            raise ValueError(f"{path}: needs a header with at least 'smcog_id' and 'cutoff' columns")
+        for row in rows:
+            sid = row["smcog_id"].strip().upper()
+            if sid in profiles:
+                raise ValueError(f"{path}: {sid} listed more than once")
+            try:
+                profiles[sid] = float(row["cutoff"])
+            except ValueError:
+                raise ValueError(f"{path}: cutoff for {sid} is not a number: {row['cutoff']!r}") from None
+    return profiles
+
+
+@dataclass(frozen=True)
+class SmcogLibrary:
+    """A curated subset of antiSMASH's smCOG profiles (data/smcogs/smcogs.hmm, copied from antiSMASH's
+    antismash/detection/genefunctions/tools/data/smcogs.hmm). The profiles carry no accession or GA; each listed one is yielded with accession and
+    NAME set to its id (SMCOG1147 -- the full NAME, e.g. SMCOG1147:putative_acyl_carrier_protein,
+    has characters the rule grammar doesn't accept), DESC set to its description, and GA set to its
+    curated cutoff."""
+
+    hmm_path: Path
+    profiles: dict[str, float]  # smCOG id -> bitscore cutoff
+
+    def iter_hmms(self) -> Iterator[HMM]:
+        found = set()
+        for hmm in iter_hmm_file(self.hmm_path):
+            sid, _, desc = _text(hmm.name).partition(":")
+            if sid not in self.profiles:
+                continue
+            found.add(sid)
+            hmm.name = sid
+            hmm.accession = sid
+            hmm.description = desc.replace("_", " ")
+            hmm.cutoffs.gathering = (self.profiles[sid], self.profiles[sid])
+            yield hmm
+        missing = sorted(set(self.profiles) - found)
+        if missing:
+            raise ValueError(f"smCOG profile(s) not in {self.hmm_path}: {', '.join(missing)}")

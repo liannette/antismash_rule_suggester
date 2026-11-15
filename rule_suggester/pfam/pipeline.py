@@ -16,7 +16,7 @@ from pathlib import Path
 from ..phase1_io import load_groups_tsv, load_segments_tsv
 from ..segments.io_fasta import Protein, discover_group_dirs, load_group_proteins
 from .clans import Clan, load_pfam_clans
-from .libraries import PgapLibrary, load_pfam_names
+from .libraries import PgapLibrary, SmcogLibrary, load_pfam_names
 from .mapping import build_group_of_segment, compute_group_domains, map_domains_to_segments
 from .outputs import write_pfam_outputs
 from .params import PfamParams
@@ -40,6 +40,9 @@ def run_pfam(
         if clans_path is None or params.pgap_metadata_path is None:
             raise ValueError("PGAP needs the Pfam clans file (for Pfam names) and the PGAP metadata table")
         pgap = PgapLibrary.load(params.pgap_hmm_path, params.pgap_metadata_path, load_pfam_names(clans_path))
+    smcog = None
+    if params.smcog_hmm_path is not None and params.smcog_profiles:
+        smcog = SmcogLibrary(params.smcog_hmm_path, params.smcog_profiles)
     group_dirs = discover_group_dirs(fasta_dir)
 
     proteins_by_group: dict[str, list[Protein]] = {}
@@ -50,14 +53,17 @@ def run_pfam(
         for p in proteins:
             unique_proteins.setdefault((p.sc_id, p.protein_id or p.local_key), p)
 
-    libraries = params.hmm_path.name + (f" and {pgap.hmm_path.name} ({len(pgap.models)} models)" if pgap else "")
+    libraries = params.hmm_path.name + (f", {pgap.hmm_path.name} ({len(pgap.models)} models)" if pgap else "")
+    libraries += f", {len(smcog.profiles)} curated smCOG profile(s)" if smcog else ""
     print(f"Scanning {len(unique_proteins)} unique proteins against {libraries} ...")
-    all_domains = scan_pfam_domains(list(unique_proteins.values()), params, pgap)
+    all_domains = scan_pfam_domains(list(unique_proteins.values()), params, pgap, smcog)
     domains_by_protein: dict[tuple[str, str], list] = defaultdict(list)
     for d in all_domains:
         domains_by_protein[(d.sc_id, d.protein_id)].append(d)
-    n_pgap = sum(1 for d in all_domains if d.source != "Pfam")
-    print(f"  {len(all_domains)} domain hits ({len(all_domains) - n_pgap} Pfam, {n_pgap} PGAP) "
+    n_pfam = sum(1 for d in all_domains if d.source == "Pfam")
+    n_smcog = sum(1 for d in all_domains if d.source == "smCOG")
+    n_pgap = len(all_domains) - n_pfam - n_smcog
+    print(f"  {len(all_domains)} domain hits ({n_pfam} Pfam, {n_pgap} PGAP, {n_smcog} smCOG) "
           f"across {len(unique_proteins)} proteins")
 
     results = []

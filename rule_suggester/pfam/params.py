@@ -7,7 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class PfamParams:
     hmm_path: Path
-    min_prevalence: float = 1.0  # signature-domain threshold: fraction of a group's BGCs
+    min_prevalence: float = 1.0  # signature-domain threshold: fraction of a group's subclusters
     straddle_threshold: float = 0.8  # a domain "belongs" to a segment if >= this fraction of it lands there
     cpus: int = 0  # 0 = let pyhmmer pick (all available cores)
 

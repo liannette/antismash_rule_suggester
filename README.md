@@ -11,24 +11,27 @@ pip install -e ".[dev]"
 
 ## Inputs
 
-- `data/fasta/<SCG…>/` -- one directory of protein FASTA files per product group
-- `data/genbanks/<SCG…>/<bgc_id>.gbk` -- reference BGCs, needed to estimate CUTOFF
+- `data/fasta/<BB…>/<SC…>.fasta` -- one directory per building block, one protein FASTA per subcluster
+  (headers `sc:<SC>|acc:<accession>|pid:|gid:|locustag:`)
+- `data/genbanks/<BB…>/<SC…>.gbk` -- each subcluster's reference record (cropped to its genes), needed to estimate CUTOFF
 - `data/pfam/Pfam-A.hmm` and `data/pfam/Pfam-A.clans.tsv`
-- `data/subcluster_groups.json` -- curated product names and metadata
+- `data/building_blocks.json` -- curated building-block names, SMILES and chemical class
+
+All three come from `../subcluster_collection/output/` (`build_jsons.py`, `export_fastas.py`, `export_genbanks.py`).
 
 ## Workflow
 
-Run everything from this directory. Each group's outputs go in `output/segments/<SCG…>/`.
+Run everything from this directory. Each group's outputs go in `output/segments/<BB…>/`; the RULE id is the `BB####` prefix.
 
 ### 1. Segment grouping (DIAMOND)
 
 `--fasta-dir` accepts either a single product-group directory or a parent directory containing several of them:
 
 ```bash
-# one group (e.g. data/fasta/SCG0006_3-amino-4-7-dihydroxycoumarin)
-python scripts/segment_groups.py --fasta-dir data/fasta/SCG0006_3-amino-4-7-dihydroxycoumarin --out-dir output/segments
+# one group (e.g. data/fasta/BB0007_3-amino-4-7-dihydroxycoumarin)
+python scripts/segment_groups.py --fasta-dir data/fasta/BB0007_3-amino-4-7-dihydroxycoumarin --out-dir output/segments
 
-# all groups under a parent directory (e.g. data/fasta/SCG0001_streptidine, SCG0002_L-streptose, ...)
+# all groups under a parent directory (e.g. data/fasta/BB0002_streptidine-6-phosphate, BB0003_L-dihydrostreptose, ...)
 python scripts/segment_groups.py --fasta-dir data/fasta --out-dir output/segments
 ```
 
@@ -48,7 +51,7 @@ Writes `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` works the same wa
 
 ```bash
 # one group (prints the full rule_conditions.md)
-python scripts/build_rule.py --segments-dir output/segments/SCG0047_D-desosamine
+python scripts/build_rule.py --segments-dir output/segments/BB0050_3-5-dihydroxyphenylglycine
 
 # all groups (prints one status line per group)
 python scripts/build_rule.py --segments-dir output/segments
@@ -56,7 +59,7 @@ python scripts/build_rule.py --segments-dir output/segments
 
 Writes `rule.txt` (the RULE block) and `rule_conditions.md` (the per-group detail and warnings behind it). GenBank files are read from `data/genbanks/<group dir name>/` by default; change the parent with `--genbank-root`, or for a single group point `--genbank-dir` straight at its GenBank directory.
 
-- CUTOFF: for each reference BGC, the smallest edge-to-edge reach that one CONDITIONS gene needs to cover all the other CONDITIONS genes (antiSMASH searches CUTOFF kb either side of an anchor CDS). The largest of these across BGCs, rounded up to the nearest 5 kb.
+- CUTOFF: for each subcluster, the smallest edge-to-edge reach that one CONDITIONS gene needs to cover all the other CONDITIONS genes (antiSMASH searches CUTOFF kb either side of an anchor CDS). The largest of these across subclusters, rounded up to the nearest 5 kb.
 - NEIGHBOURHOOD is always 0.
 
 ### 4. Combined report (optional, for review)

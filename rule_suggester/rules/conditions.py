@@ -1,7 +1,7 @@
 """Building antiSMASH-style rule CONDITIONS/EXTENDERS text from representative Pfam domains
 (Phase 3, building on Phase 2's per-group representative-domain selection in rule_suggester/pfam).
 
-CONDITIONS: one cds(...) per core group (present in every BGC of the product group), ANDed --
+CONDITIONS: one cds(...) per core group (present in every subcluster of the product group), ANDed --
 a core group's representative domains must co-occur on the same CDS, and every core group must
 be hit for the rule to fire. A core group with no signature domain at all (nothing reached 100%
 prevalence in Step 2) has nothing to contribute and is left out of CONDITIONS -- that weakens the
@@ -59,13 +59,13 @@ def load_representative_domains(group_domains_tsv: Path) -> dict[str, list[str]]
 class GroupSummary:
     group_id: str
     gene_names: list[str]
-    n_bgcs: int  # this group's own BGC membership count
-    n_bgcs_total: int  # total BGCs in the product group
+    n_scs: int  # this group's own subcluster membership count
+    n_scs_total: int  # total subclusters in the product group
     representative_domains: list[str] = field(default_factory=list)
 
     @property
     def is_core(self) -> bool:
-        return self.n_bgcs_total > 0 and self.n_bgcs == self.n_bgcs_total
+        return self.n_scs_total > 0 and self.n_scs == self.n_scs_total
 
     @property
     def contributes(self) -> bool:
@@ -73,25 +73,25 @@ class GroupSummary:
 
 
 def _load_presence(presence_tsv: Path) -> tuple[int, dict[str, int]]:
-    """Total BGC count for the product group (row count), and each group's own BGC count
+    """Total subcluster count for the product group (row count), and each group's own subcluster count
     (column sum) -- a group is core iff its own count equals the total. groups.tsv alone can't
-    give the total: if no group happens to be core (e.g. SCG0045_ethylmalonyl-CoA), every group's
-    own n_bgcs would look like a plausible-but-wrong total.
+    give the total: if no group happens to be core (e.g. a product group whose subclusters share no gene), every group's
+    own n_scs would look like a plausible-but-wrong total.
     """
     with Path(presence_tsv).open(newline="") as f:
         reader = csv.reader(f, delimiter="\t")
         group_ids = next(reader)[1:]
         counts = dict.fromkeys(group_ids, 0)
-        n_bgcs_total = 0
+        n_scs_total = 0
         for row in reader:
-            n_bgcs_total += 1
+            n_scs_total += 1
             for group_id, value in zip(group_ids, row[1:]):
                 counts[group_id] += int(value)
-    return n_bgcs_total, counts
+    return n_scs_total, counts
 
 
 def build_group_summaries(groups_tsv: Path, presence_tsv: Path, group_domains_tsv: Path) -> list[GroupSummary]:
-    n_bgcs_total, group_bgc_counts = _load_presence(presence_tsv)
+    n_scs_total, group_sc_counts = _load_presence(presence_tsv)
 
     gene_names: dict[str, list[str]] = {}
     order: list[str] = []
@@ -108,8 +108,8 @@ def build_group_summaries(groups_tsv: Path, presence_tsv: Path, group_domains_ts
         GroupSummary(
             group_id=g,
             gene_names=gene_names[g],
-            n_bgcs=group_bgc_counts.get(g, 0),
-            n_bgcs_total=n_bgcs_total,
+            n_scs=group_sc_counts.get(g, 0),
+            n_scs_total=n_scs_total,
             representative_domains=reps.get(g, []),
         )
         for g in order

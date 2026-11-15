@@ -18,7 +18,7 @@ from .params import PfamParams
 
 @dataclass(frozen=True)
 class Domain:
-    bgc_id: str
+    sc_id: str
     protein_id: str
     gene_name: str
     pfam_acc: str
@@ -37,14 +37,14 @@ def _text(value: bytes | str | None) -> str:
 
 def scan_pfam_domains(proteins: list[Protein], params: PfamParams) -> list[Domain]:
     """Run hmmsearch with Pfam's gathering-threshold cutoffs (--cut_ga) against every protein.
-    Proteins are keyed by "<bgc_id>|<protein_id>" for the search; that's decoded back into
-    per-domain bgc_id/protein_id in the result, no other header parsing involved.
+    Proteins are keyed by "<sc_id>|<protein_id>" for the search; that's decoded back into
+    per-domain sc_id/protein_id in the result, no other header parsing involved.
     """
     alphabet = Alphabet.amino()
     proteins_by_key: dict[str, Protein] = {}
     sequences = []
     for p in proteins:
-        key = f"{p.bgc_id}|{p.protein_id or p.local_key}"
+        key = f"{p.sc_id}|{p.protein_id or p.local_key}"
         proteins_by_key[key] = p
         seq = TextSequence(name=key.encode(), sequence=p.sequence).digitize(alphabet)
         sequences.append(seq)
@@ -63,7 +63,7 @@ def scan_pfam_domains(proteins: list[Protein], params: PfamParams) -> list[Domai
                         continue
                     domains.append(
                         Domain(
-                            bgc_id=protein.bgc_id,
+                            sc_id=protein.sc_id,
                             protein_id=protein.protein_id or protein.local_key,
                             gene_name=protein.gene_name,
                             pfam_acc=pfam_acc,

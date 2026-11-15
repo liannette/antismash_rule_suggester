@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CLI entry point for building compound_details.txt (antiSMASH subclusters module format) from
-a combined rules file (scripts/combine_rules.py's output) and the curated product metadata in
-data/subcluster_groups.json.
+a combined rules file (scripts/combine_rules.py's output) and the curated building-block metadata in
+data/building_blocks.json.
 
 Format (see antismash/antismash/detection/subclusters/compounds.py): tab-separated, one row per
 RULE id with columns rule_name, compound_name, smiles, classification (semicolon-separated).
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rule_suggester.export.compounds import load_products
 from rule_suggester.export.parse import extract_rule_ids
 
-DEFAULT_SUBCLUSTER_GROUPS_JSON = Path(__file__).resolve().parent.parent / "data" / "subcluster_groups.json"
+DEFAULT_BUILDING_BLOCKS_JSON = Path(__file__).resolve().parent.parent / "data" / "building_blocks.json"
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "output" / "compound_details.txt"
 
 HEADER = "# rule_name\tcompound_name\tsmiles\tclassification (semicolon-separated)"
@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rules-file", type=Path, required=True,
                          help="A combined rules file, e.g. output/subcluster_rules.txt.")
-    parser.add_argument("--subcluster-groups-json", type=Path, default=DEFAULT_SUBCLUSTER_GROUPS_JSON)
+    parser.add_argument("--building-blocks-json", type=Path, default=DEFAULT_BUILDING_BLOCKS_JSON)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     return parser.parse_args()
 
@@ -39,12 +39,12 @@ def main() -> int:
     if not args.rules_file.exists():
         print(f"error: {args.rules_file} not found", file=sys.stderr)
         return 1
-    if not args.subcluster_groups_json.exists():
-        print(f"error: {args.subcluster_groups_json} not found", file=sys.stderr)
+    if not args.building_blocks_json.exists():
+        print(f"error: {args.building_blocks_json} not found", file=sys.stderr)
         return 1
 
     rule_ids = extract_rule_ids(args.rules_file.read_text())
-    products = load_products(args.subcluster_groups_json)
+    products = load_products(args.building_blocks_json)
 
     lines = [HEADER]
     missing: list[str] = []
@@ -72,7 +72,7 @@ def main() -> int:
             print(f"  {rule_id}", file=sys.stderr)
     if missing:
         print(
-            f"WARNING: {len(missing)} rule(s) have no entry in {args.subcluster_groups_json} "
+            f"WARNING: {len(missing)} rule(s) have no entry in {args.building_blocks_json} "
             "-- compound_details.txt is incomplete, antiSMASH will KeyError loading these rules:",
             file=sys.stderr,
         )

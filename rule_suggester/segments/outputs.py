@@ -68,12 +68,12 @@ def _write_segments_tsv(path: Path, segments: list[Segment]) -> None:
     with path.open("w", newline="") as f:
         w = csv.writer(f, delimiter="\t")
         w.writerow(
-            ["segment_id", "bgc", "protein_id", "gene_name", "start", "end", "length", "n_segments_in_protein"]
+            ["segment_id", "sc", "protein_id", "gene_name", "start", "end", "length", "n_segments_in_protein"]
         )
-        for seg in sorted(segments, key=lambda s: (s.bgc_id, s.key, s.start)):
+        for seg in sorted(segments, key=lambda s: (s.sc_id, s.key, s.start)):
             n_in_protein = len(by_protein[seg.key])
             w.writerow(
-                [seg.id, seg.bgc_id, seg.protein_id, seg.gene_name, seg.start + 1, seg.end, seg.length, n_in_protein]
+                [seg.id, seg.sc_id, seg.protein_id, seg.gene_name, seg.start + 1, seg.end, seg.length, n_in_protein]
             )
 
 
@@ -88,11 +88,11 @@ def _write_edges_tsv(path: Path, edges: list[tuple[str, str, float]]) -> None:
 def _write_groups_tsv(path: Path, groups: list[Group]) -> None:
     with path.open("w", newline="") as f:
         w = csv.writer(f, delimiter="\t")
-        w.writerow(["group_id", "n_bgcs", "bgc", "protein_id", "gene_name", "start", "end", "seg_len"])
+        w.writerow(["group_id", "n_scs", "sc", "protein_id", "gene_name", "start", "end", "seg_len"])
         for group in groups:
             for seg in group.segments:
                 w.writerow(
-                    [group.id, group.n_bgcs, seg.bgc_id, seg.protein_id, seg.gene_name, seg.start + 1, seg.end, seg.length]
+                    [group.id, group.n_scs, seg.sc_id, seg.protein_id, seg.gene_name, seg.start + 1, seg.end, seg.length]
                 )
 
 
@@ -104,19 +104,19 @@ def _write_group_fastas(groups_dir: Path, groups: list[Group], proteins: list[Pr
             for seg in group.segments:
                 protein = proteins_by_key[seg.key]
                 seq = protein.sequence[seg.start:seg.end]
-                header = f"{seg.bgc_id}|{seg.protein_id or protein.local_key}|{seg.gene_name}|{seg.start + 1}-{seg.end}"
+                header = f"{seg.sc_id}|{seg.protein_id or protein.local_key}|{seg.gene_name}|{seg.start + 1}-{seg.end}"
                 f.write(f">{header}\n{seq}\n")
 
 
 def _write_presence_tsv(path: Path, proteins: list[Protein], groups: list[Group]) -> None:
-    bgcs = sorted({p.bgc_id for p in proteins})
+    scs = sorted({p.sc_id for p in proteins})
     with path.open("w", newline="") as f:
         w = csv.writer(f, delimiter="\t")
-        w.writerow(["bgc"] + [g.id for g in groups])
-        for bgc in bgcs:
-            row = [bgc]
+        w.writerow(["sc"] + [g.id for g in groups])
+        for sc in scs:
+            row = [sc]
             for group in groups:
-                present = any(seg.bgc_id == bgc for seg in group.segments)
+                present = any(seg.sc_id == sc for seg in group.segments)
                 row.append(1 if present else 0)
             w.writerow(row)
 
@@ -131,10 +131,10 @@ def _write_report(
     groups: list[Group],
     invariant_violations: list[str],
 ) -> None:
-    bgcs = sorted({p.bgc_id for p in proteins})
-    total_bgcs = len(bgcs)
+    scs = sorted({p.sc_id for p in proteins})
+    total_scs = len(scs)
     by_protein = _segments_by_protein(segments)
-    core_groups = [g for g in groups if g.n_bgcs == total_bgcs]
+    core_groups = [g for g in groups if g.n_scs == total_scs]
     singleton_groups = [g for g in groups if len(g.segments) == 1]
     split_proteins = [p for p in proteins if len(by_protein[p.key]) > 1]
     group_of_segment = {seg.id: g.id for g in groups for seg in g.segments}
@@ -144,11 +144,11 @@ def _write_report(
     lines.append("")
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"- BGCs: {total_bgcs}")
+    lines.append(f"- Subclusters: {total_scs}")
     lines.append(f"- Proteins: {len(proteins)}")
     lines.append(f"- Segments: {len(segments)}")
     lines.append(f"- Groups: {len(groups)}")
-    lines.append(f"- Core groups (present in all BGCs): {len(core_groups)}")
+    lines.append(f"- Core groups (present in all subclusters): {len(core_groups)}")
     lines.append(f"- Singleton groups: {len(singleton_groups)}")
     lines.append(f"- Breakpoint propagation: {breakpoint_result.iterations} iteration(s), "
                  f"{'converged' if breakpoint_result.converged else 'did NOT converge'}")
@@ -168,14 +168,14 @@ def _write_report(
     lines.append("## Groups")
     lines.append("")
     for group in groups:
-        core = " (core)" if group.n_bgcs == total_bgcs else ""
-        lines.append(f"### {group.id} -- {group.n_bgcs}/{total_bgcs} BGCs{core}")
+        core = " (core)" if group.n_scs == total_scs else ""
+        lines.append(f"### {group.id} -- {group.n_scs}/{total_scs} subclusters{core}")
         lines.append("")
-        lines.append("| BGC | gene name | protein ID | locus tag | range | length |")
+        lines.append("| subcluster | gene name | protein ID | locus tag | range | length |")
         lines.append("|---|---|---|---|---|---|")
-        for seg in sorted(group.segments, key=lambda s: s.bgc_id):
+        for seg in sorted(group.segments, key=lambda s: s.sc_id):
             lines.append(
-                f"| {seg.bgc_id} | {seg.gene_name} | {seg.protein_id} | {seg.locus_tag} | "
+                f"| {seg.sc_id} | {seg.gene_name} | {seg.protein_id} | {seg.locus_tag} | "
                 f"{seg.start + 1}-{seg.end} | {seg.length} |"
             )
         lines.append("")
@@ -183,7 +183,7 @@ def _write_report(
     lines.append("## Proteins split into multiple segments")
     lines.append("")
     if split_proteins:
-        lines.append("| BGC | gene name | protein ID | locus tag | n segments | segments (range -> group) |")
+        lines.append("| subcluster | gene name | protein ID | locus tag | n segments | segments (range -> group) |")
         lines.append("|---|---|---|---|---|---|")
         for p in split_proteins:
             segs = sorted(by_protein[p.key], key=lambda s: s.start)
@@ -191,7 +191,7 @@ def _write_report(
                 f"{s.start + 1}-{s.end} -> {group_of_segment.get(s.id, '?')}" for s in segs
             )
             lines.append(
-                f"| {p.bgc_id} | {p.gene_name} | {p.protein_id} | {p.locus_tag} | {len(segs)} | {detail} |"
+                f"| {p.sc_id} | {p.gene_name} | {p.protein_id} | {p.locus_tag} | {len(segs)} | {detail} |"
             )
     else:
         lines.append("None.")
@@ -206,7 +206,7 @@ def _write_report(
         lines.append("**Proteins with >4 segments (likely breakpoint noise):**")
         for p in noisy:
             lines.append(
-                f"- {p.gene_name} / {p.protein_id} / {p.locus_tag} ({p.bgc_id}): "
+                f"- {p.gene_name} / {p.protein_id} / {p.locus_tag} ({p.sc_id}): "
                 f"{len(by_protein[p.key])} segments"
             )
     if not breakpoint_result.converged:

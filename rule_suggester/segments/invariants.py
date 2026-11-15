@@ -55,15 +55,15 @@ def check_invariants(
 
     proteins_with_key = {p.key for p in proteins}
     for group in groups:
-        seen_bgcs: dict[str, str] = {}
+        seen_scs: dict[str, str] = {}
         for seg in group.segments:
             if seg.key not in proteins_with_key:
                 violations.append(f"group {group.id}: segment {seg.id} has no source protein")
-            if seg.bgc_id in seen_bgcs:
+            if seg.sc_id in seen_scs:
                 violations.append(
-                    f"group {group.id}: two segments from BGC {seg.bgc_id} "
-                    f"({seen_bgcs[seg.bgc_id]} and {seg.id})"
+                    f"group {group.id}: two segments from subcluster {seg.sc_id} "
+                    f"({seen_scs[seg.sc_id]} and {seg.id})"
                 )
-            seen_bgcs[seg.bgc_id] = seg.id
+            seen_scs[seg.sc_id] = seg.id
 
     return violations

@@ -24,18 +24,18 @@ from .segmentation import build_segments
 class GroupRunResult:
     group_name: str
     out_dir: Path
-    n_bgcs: int  # subcluster instances in this product group
+    n_scs: int  # subcluster instances in this product group
     n_proteins: int
     n_segments: int
     n_groups: int
-    group_bgc_counts: list[tuple[str, int]]  # (group_id, n_bgcs) -- subcluster instances per group
+    group_sc_counts: list[tuple[str, int]]  # (group_id, n_scs) -- subcluster instances per group
     invariant_violations: list[str]
 
 
 def run_group(group_dir: Path, out_dir: Path, params: Params, diamond_bin: Path) -> GroupRunResult:
     group_name = group_dir.name
     proteins = load_group_proteins(group_dir)
-    total_bgcs = len({p.bgc_id for p in proteins})
+    total_scs = len({p.sc_id for p in proteins})
 
     with tempfile.TemporaryDirectory(prefix=f"diamond_{group_name}_") as tmp:
         tmp_path = Path(tmp)
@@ -48,7 +48,7 @@ def run_group(group_dir: Path, out_dir: Path, params: Params, diamond_bin: Path)
     edges = build_edges(proteins, segments, hits.local_hits, hits.selfbits, params)
     cluster_of = cluster_segments(segments, edges, params)
     segments, cluster_of, _ = merge_uninformative_breakpoints(proteins, segments, cluster_of)
-    groups = assign_groups(segments, cluster_of, proteins, total_bgcs)
+    groups = assign_groups(segments, cluster_of, proteins, total_scs)
     violations = check_invariants(proteins, segments, groups)
 
     write_outputs(
@@ -58,11 +58,11 @@ def run_group(group_dir: Path, out_dir: Path, params: Params, diamond_bin: Path)
     return GroupRunResult(
         group_name=group_name,
         out_dir=out_dir,
-        n_bgcs=total_bgcs,
+        n_scs=total_scs,
         n_proteins=len(proteins),
         n_segments=len(segments),
         n_groups=len(groups),
-        group_bgc_counts=[(g.id, g.n_bgcs) for g in groups],
+        group_sc_counts=[(g.id, g.n_scs) for g in groups],
         invariant_violations=violations,
     )
 

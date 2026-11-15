@@ -12,7 +12,7 @@ from .params import Params
 class Segment:
     id: str
     key: str  # parent protein key
-    bgc_id: str
+    sc_id: str
     protein_id: str
     gene_name: str
     locus_tag: str
@@ -54,12 +54,12 @@ def build_segments(
         pts = _merge_short(breakpoints[p.key], params.min_seg)
         pid = p.protein_id or p.local_key
         for start, end in zip(pts, pts[1:]):
-            seg_id = f"{p.bgc_id}|{pid}|{start + 1}-{end}"
+            seg_id = f"{p.sc_id}|{pid}|{start + 1}-{end}"
             segments.append(
                 Segment(
                     id=seg_id,
                     key=p.key,
-                    bgc_id=p.bgc_id,
+                    sc_id=p.sc_id,
                     protein_id=p.protein_id,
                     gene_name=p.gene_name,
                     locus_tag=p.locus_tag,

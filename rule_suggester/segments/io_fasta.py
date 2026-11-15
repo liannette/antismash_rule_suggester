@@ -1,7 +1,7 @@
 """Resolving --fasta-dir and loading a product group's proteins from it.
 
-data/fasta/<group>/<BGC>.fasta: one directory per product group, each holding one protein FASTA
-per member BGC (see docs/segment_grouping_spec.md). --fasta-dir may point at a single such group
+data/fasta/<group>/<SC>.fasta: one directory per product group (building block), each holding one
+protein FASTA per member subcluster (see docs/segment_grouping_spec.md). --fasta-dir may point at a single such group
 directory, or at a parent directory holding several of them -- detected from contents, never from
 a flag.
 """
@@ -13,20 +13,21 @@ from pathlib import Path
 
 from Bio import SeqIO
 
-from ..headers import make_combined_header, parse_source_header
+from ..headers import make_header, parse_header
 
 _FASTA_GLOBS = ("*.fasta", "*.faa", "*.fa")
 
 
 @dataclass(frozen=True)
 class Protein:
-    key: str  # unique within the group: "<bgc_id>|<local_key>"
-    bgc_id: str
+    key: str  # unique within the group: "<sc_id>|<local_key>"
+    sc_id: str
+    acc: str  # accession of the sequence record the gene comes from (MIBiG/GenBank)
     protein_id: str
     gene_name: str
     locus_tag: str
     local_key: str  # protein_id, or locus_tag/gene_name fallback when protein_id is blank
-    order: int  # 0-based position within its BGC's FASTA file, for group-ordering heuristics
+    order: int  # 0-based position within its subcluster's FASTA file, for group-ordering heuristics
     sequence: str
 
     @property
@@ -35,7 +36,7 @@ class Protein:
 
     @property
     def header(self) -> str:
-        return make_combined_header(self.bgc_id, self.protein_id, self.gene_name, self.locus_tag)
+        return make_header(self.sc_id, self.acc, self.protein_id, self.gene_name, self.locus_tag)
 
 
 def _group_fasta_files(directory: Path) -> list[Path]:
@@ -63,20 +64,23 @@ def discover_group_dirs(fasta_dir: Path) -> list[Path]:
 
 
 def load_group_proteins(group_dir: Path) -> list[Protein]:
-    """Load every protein in a group directory's per-BGC FASTA files, in file/record order."""
+    """Load every protein in a group directory's per-subcluster FASTA files, in file/record order.
+    The subcluster id comes from the header's sc: field, falling back to the file name (SC####)
+    for headers without one."""
     proteins: list[Protein] = []
     seen_keys: set[str] = set()
     for fasta_path in _group_fasta_files(group_dir):
-        bgc_id = fasta_path.stem
         for order, record in enumerate(SeqIO.parse(fasta_path, "fasta")):
-            protein_id, gene_name, locus_tag = parse_source_header(record.description)
+            h = parse_header(record.description)
+            sc_id = h.sc_id or fasta_path.stem
+            protein_id, gene_name, locus_tag = h.protein_id, h.gene_name, h.locus_tag
             local_key = protein_id or locus_tag or gene_name
             if not local_key:
                 raise ValueError(
                     f"{fasta_path}: header {record.description!r} has no protein_id, "
                     "locus_tag, or gene_name to identify it by"
                 )
-            key = f"{bgc_id}|{local_key}"
+            key = f"{sc_id}|{local_key}"
             if key in seen_keys:
                 raise ValueError(
                     f"{fasta_path}: duplicate protein identifier {local_key!r} within group "
@@ -86,7 +90,8 @@ def load_group_proteins(group_dir: Path) -> list[Protein]:
             proteins.append(
                 Protein(
                     key=key,
-                    bgc_id=bgc_id,
+                    sc_id=sc_id,
+                    acc=h.acc,
                     protein_id=protein_id,
                     gene_name=gene_name,
                     locus_tag=locus_tag,

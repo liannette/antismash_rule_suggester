@@ -32,8 +32,8 @@ def build_edges(
     for q_key, hits in local_hits.items():
         q_segs = segs_by_protein[q_key]
         for h in hits:
-            if proteins_by_key[q_key].bgc_id == proteins_by_key[h.other_key].bgc_id:
-                continue  # never edge segments of the same BGC (paralog hits are already dropped)
+            if proteins_by_key[q_key].sc_id == proteins_by_key[h.other_key].sc_id:
+                continue  # never edge segments of the same subcluster (paralog hits are already dropped)
             hsp_len = h.self_end - h.self_start
             if hsp_len <= 0:
                 continue

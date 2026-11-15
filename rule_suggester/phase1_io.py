@@ -13,7 +13,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class SegmentRecord:
     segment_id: str
-    bgc_id: str
+    sc_id: str
     protein_id: str
     gene_name: str
     start: int  # 0-based half-open (converted back from the 1-based-inclusive TSV)
@@ -24,8 +24,8 @@ class SegmentRecord:
 @dataclass(frozen=True)
 class GroupMembership:
     group_id: str
-    n_bgcs: int
-    bgc_id: str
+    n_scs: int
+    sc_id: str
     protein_id: str
     gene_name: str
     start: int  # 0-based half-open
@@ -37,7 +37,7 @@ def load_segments_tsv(path: Path) -> list[SegmentRecord]:
         return [
             SegmentRecord(
                 segment_id=row["segment_id"],
-                bgc_id=row["bgc"],
+                sc_id=row["sc"],
                 protein_id=row["protein_id"],
                 gene_name=row["gene_name"],
                 start=int(row["start"]) - 1,
@@ -53,8 +53,8 @@ def load_groups_tsv(path: Path) -> list[GroupMembership]:
         return [
             GroupMembership(
                 group_id=row["group_id"],
-                n_bgcs=int(row["n_bgcs"]),
-                bgc_id=row["bgc"],
+                n_scs=int(row["n_scs"]),
+                sc_id=row["sc"],
                 protein_id=row["protein_id"],
                 gene_name=row["gene_name"],
                 start=int(row["start"]) - 1,

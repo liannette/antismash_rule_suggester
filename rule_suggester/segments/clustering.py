@@ -1,7 +1,7 @@
 """Constrained average-linkage clustering of segments into groups (spec step 6).
 
 No synteny bonus in phase 1 -- a synteny-aware tie-breaker on the average-linkage score `L` (e.g.
-boosting L for clusters whose members keep the same relative gene order across BGCs) would hook in
+boosting L for clusters whose members keep the same relative gene order across subclusters) would hook in
 right where L is computed in _average_linkage, before the MIN_LINK comparison.
 """
 
@@ -37,7 +37,7 @@ def cluster_segments(
         return x
 
     cluster_members: dict[str, set[str]] = {seg.id: {seg.id} for seg in segments}
-    cluster_bgcs: dict[str, set[str]] = {seg.id: {seg.bgc_id} for seg in segments}
+    cluster_scs: dict[str, set[str]] = {seg.id: {seg.sc_id} for seg in segments}
 
     pair_weight: dict[tuple[str, str], float] = {}
     for a, b, w in edges:
@@ -54,7 +54,7 @@ def cluster_segments(
         ra, rb = find(a), find(b)
         if ra == rb:
             continue
-        if cluster_bgcs[ra] & cluster_bgcs[rb]:
+        if cluster_scs[ra] & cluster_scs[rb]:
             continue
 
         link = _average_linkage(cluster_members[ra], cluster_members[rb], pair_weight)
@@ -67,8 +67,8 @@ def cluster_segments(
         lo, hi = (ra, rb) if ra < rb else (rb, ra)  # deterministic: smaller id survives as root
         parent[hi] = lo
         cluster_members[lo] |= cluster_members[hi]
-        cluster_bgcs[lo] |= cluster_bgcs[hi]
+        cluster_scs[lo] |= cluster_scs[hi]
         del cluster_members[hi]
-        del cluster_bgcs[hi]
+        del cluster_scs[hi]
 
     return {seg.id: find(seg.id) for seg in segments}

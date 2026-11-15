@@ -1,4 +1,4 @@
-"""Helpers for building synthetic BGC FASTA directories with known ground truth.
+"""Helpers for building synthetic subcluster FASTA directories with known ground truth.
 
 Random sequences make homology exact and unambiguous: two sequences are homologous iff one was
 derived from the other by mutate(), never by chance.
@@ -28,11 +28,11 @@ def mutate(sequence: str, rate: float, seed: int) -> str:
     return "".join(out)
 
 
-def write_bgc_fasta(group_dir: Path, bgc_id: str, genes: list[tuple[str, str, str]]) -> Path:
+def write_sc_fasta(group_dir: Path, sc_id: str, genes: list[tuple[str, str, str]]) -> Path:
     """genes: list of (protein_id, gene_name, sequence). locus_tag mirrors protein_id."""
-    path = group_dir / f"{bgc_id}.fasta"
+    path = group_dir / f"{sc_id}.fasta"
     with path.open("w") as f:
         for protein_id, gene_name, sequence in genes:
-            locus_tag = f"{bgc_id}_{protein_id}"
-            f.write(f">pid:{protein_id}|gid:{gene_name}|locustag:{locus_tag}\n{sequence}\n")
+            locus_tag = f"{sc_id}_{protein_id}"
+            f.write(f">sc:{sc_id}|acc:ACC_{sc_id}|pid:{protein_id}|gid:{gene_name}|locustag:{locus_tag}\n{sequence}\n")
     return path

@@ -27,11 +27,11 @@ def map_domains_to_segments(
 ) -> list[DomainAssignment]:
     segs_by_protein: dict[tuple[str, str], list[SegmentRecord]] = defaultdict(list)
     for seg in segments:
-        segs_by_protein[(seg.bgc_id, seg.protein_id)].append(seg)
+        segs_by_protein[(seg.sc_id, seg.protein_id)].append(seg)
 
     assignments = []
     for dom in domains:
-        candidates = segs_by_protein.get((dom.bgc_id, dom.protein_id), [])
+        candidates = segs_by_protein.get((dom.sc_id, dom.protein_id), [])
         domain_len = dom.env_to - dom.env_from
 
         best_seg, best_frac_domain, best_frac_segment = None, 0.0, 0.0
@@ -61,10 +61,10 @@ def build_group_of_segment(
     segments: list[SegmentRecord], groups: list[GroupMembership]
 ) -> dict[str, str]:
     """groups.tsv doesn't carry segment_id, so join it back to segments.tsv by coordinates."""
-    seg_by_coords = {(s.bgc_id, s.protein_id, s.start, s.end): s.segment_id for s in segments}
+    seg_by_coords = {(s.sc_id, s.protein_id, s.start, s.end): s.segment_id for s in segments}
     group_of_segment = {}
     for g in groups:
-        seg_id = seg_by_coords.get((g.bgc_id, g.protein_id, g.start, g.end))
+        seg_id = seg_by_coords.get((g.sc_id, g.protein_id, g.start, g.end))
         if seg_id is not None:
             group_of_segment[seg_id] = g.group_id
     return group_of_segment
@@ -77,8 +77,8 @@ class GroupDomain:
     pfam_name: str
     clan_acc: str
     clan_name: str
-    n_bgcs_with_domain: int
-    n_bgcs_total: int
+    n_scs_with_domain: int
+    n_scs_total: int
     prevalence: float
     is_signature: bool
     any_straddling: bool
@@ -89,12 +89,12 @@ class GroupDomain:
 def compute_group_domains(
     assignments: list[DomainAssignment],
     group_of_segment: dict[str, str],
-    n_bgcs_by_group: dict[str, int],
+    n_scs_by_group: dict[str, int],
     params: PfamParams,
     clan_map: dict[str, Clan] | None = None,
 ) -> list[GroupDomain]:
     clan_map = clan_map or {}
-    bgcs_with_domain: dict[tuple[str, str], set[str]] = defaultdict(set)
+    scs_with_domain: dict[tuple[str, str], set[str]] = defaultdict(set)
     any_straddle: dict[tuple[str, str], bool] = defaultdict(bool)
     best_i_evalue: dict[tuple[str, str], float] = {}
     pfam_names: dict[str, str] = {}
@@ -110,15 +110,15 @@ def compute_group_domains(
         if a.straddling:
             any_straddle[key] = True
         else:
-            bgcs_with_domain[key].add(a.domain.bgc_id)
+            scs_with_domain[key].add(a.domain.sc_id)
             if a.domain.i_evalue < best_i_evalue.get(key, float("inf")):
                 best_i_evalue[key] = a.domain.i_evalue
 
     results = []
-    for key in set(bgcs_with_domain) | set(any_straddle):
+    for key in set(scs_with_domain) | set(any_straddle):
         group_id, pfam_acc = key
-        n_total = n_bgcs_by_group.get(group_id, 0)
-        n_with = len(bgcs_with_domain.get(key, set()))
+        n_total = n_scs_by_group.get(group_id, 0)
+        n_with = len(scs_with_domain.get(key, set()))
         prevalence = n_with / n_total if n_total else 0.0
         straddle = any_straddle.get(key, False)
         clan = clan_map.get(pfam_acc)
@@ -129,8 +129,8 @@ def compute_group_domains(
                 pfam_name=pfam_names.get(pfam_acc, ""),
                 clan_acc=clan.acc if clan else "",
                 clan_name=clan.name if clan else "",
-                n_bgcs_with_domain=n_with,
-                n_bgcs_total=n_total,
+                n_scs_with_domain=n_with,
+                n_scs_total=n_total,
                 prevalence=prevalence,
                 is_signature=(prevalence >= params.min_prevalence and not straddle),
                 any_straddling=straddle,

@@ -70,10 +70,10 @@ def main() -> int:
         result = run_group(group_dir, out_dir, params, args.diamond_bin)
         status = "OK" if not result.invariant_violations else f"{len(result.invariant_violations)} VIOLATION(S)"
         print(
-            f"  {result.n_bgcs} BGCs, {result.n_proteins} proteins, {result.n_segments} segments, "
+            f"  {result.n_scs} subclusters, {result.n_proteins} proteins, {result.n_segments} segments, "
             f"{result.n_groups} groups -> {out_dir} [{status}]"
         )
-        counts = ", ".join(f"{gid}: {n}" for gid, n in result.group_bgc_counts)
+        counts = ", ".join(f"{gid}: {n}" for gid, n in result.group_sc_counts)
         print(f"    subcluster instances per group -- {counts}")
         if result.invariant_violations:
             failed.append(result)

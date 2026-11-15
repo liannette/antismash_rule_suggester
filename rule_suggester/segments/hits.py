@@ -16,7 +16,7 @@ from .params import Params
 
 @dataclass(frozen=True)
 class Hsp:
-    """One filtered, cross-BGC HSP, coordinates 0-based half-open."""
+    """One filtered, cross-subcluster HSP, coordinates 0-based half-open."""
 
     q_key: str
     s_key: str
@@ -30,7 +30,7 @@ class Hsp:
 @dataclass(frozen=True)
 class LocalHit:
     """An HSP viewed from one of its two proteins: self_* are this protein's own coordinates,
-    other_* are the partner's. Every filtered cross-BGC HSP is stored from both proteins' point of
+    other_* are the partner's. Every filtered cross-subcluster HSP is stored from both proteins' point of
     view, so breakpoint propagation and edge-building never have to special-case which side of the
     original DIAMOND row a protein was on.
     """
@@ -71,8 +71,8 @@ def load_hits(hits_path: Path, proteins: list[Protein], params: Params) -> HitsR
 
             q = parse_header(qseqid)
             s = parse_header(sseqid)
-            q_key = f"{q.bgc_id}|{q.protein_id or q.locus_tag or q.gene_name}"
-            s_key = f"{s.bgc_id}|{s.protein_id or s.locus_tag or s.gene_name}"
+            q_key = f"{q.sc_id}|{q.protein_id or q.locus_tag or q.gene_name}"
+            s_key = f"{s.sc_id}|{s.protein_id or s.locus_tag or s.gene_name}"
             if q_key not in proteins_by_key or s_key not in proteins_by_key:
                 raise ValueError(
                     f"hit references unknown protein ({q_key!r} or {s_key!r}) -- "
@@ -89,8 +89,8 @@ def load_hits(hits_path: Path, proteins: list[Protein], params: Params) -> HitsR
                 self_bitscores[q_key].append(bits)
                 continue
 
-            if q.bgc_id == s.bgc_id:
-                # different genes of the same BGC: paralogs never form edges.
+            if q.sc_id == s.sc_id:
+                # different genes of the same subcluster: paralogs never form edges.
                 continue
 
             if (q_end0 - q_start0) < params.min_hsp_len:

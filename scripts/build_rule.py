@@ -2,10 +2,10 @@
 """CLI entry point for building a full antiSMASH RULE block (Phase 3, building on
 scripts/pfam_domains.py's Phase 2 output).
 
-RULE = the SCG id, e.g. SCG0031.
+RULE = the bb_id (building block), e.g. BB0003.
 CATEGORY = always "Subcluster".
-DESCRIPTION = the curated product name from data/subcluster_groups.json.
-CUTOFF = estimated from real gene spacing in data/genbanks/<group>/<bgc_id>.gbk, when available
+DESCRIPTION = the curated building-block name from data/building_blocks.json.
+CUTOFF = estimated from real gene spacing in data/genbanks/<group>/<sc_id>.gbk, when available
 (see rule_suggester.rules.gene_ranges); NEIGHBOURHOOD is always 0 (see render_rule_block()).
 CONDITIONS = core groups' representative domains, cds()-ANDed per group, ANDed across groups.
 EXTENDERS = non-core groups' representative domains, cds()-ANDed per group, ORed across groups.
@@ -25,21 +25,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.phase1_io import load_groups_tsv
 from rule_suggester.rules.conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
-from rule_suggester.rules.gene_ranges import BgcSpan, compute_bgc_spans, estimate_cutoff_kb
+from rule_suggester.rules.gene_ranges import ScSpan, compute_sc_spans, estimate_cutoff_kb
 from rule_suggester.rules.product_names import load_product_names, sanitize_description
 
 DEFAULT_GENBANK_ROOT = Path(__file__).resolve().parent.parent / "data" / "genbanks"
-DEFAULT_SUBCLUSTER_GROUPS_JSON = Path(__file__).resolve().parent.parent / "data" / "subcluster_groups.json"
+DEFAULT_BUILDING_BLOCKS_JSON = Path(__file__).resolve().parent.parent / "data" / "building_blocks.json"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--segments-dir", "--segment-dir", dest="segments_dir", type=Path, required=True,
-                         help="A single group's phase-1/2 output dir (e.g. output/segments/SCG0001_streptidine), "
+                         help="A single group's phase-1/2 output dir (e.g. output/segments/BB0003_L-dihydrostreptose), "
                               "or a parent dir of them (e.g. output/segments).")
     parser.add_argument(
         "--genbank-dir", type=Path, default=None,
-        help="Single group only: dir of <bgc_id>.gbk files for this product group's example BGCs, "
+        help="Single group only: dir of <sc_id>.gbk files for this product group's example subclusters, "
              "used to estimate CUTOFF from real gene spacing. Overrides --genbank-root.",
     )
     parser.add_argument(
@@ -47,8 +47,8 @@ def parse_args() -> argparse.Namespace:
         help="Parent of per-group GenBank dirs; each group uses <genbank-root>/<group dir name>.",
     )
     parser.add_argument(
-        "--subcluster-groups-json", type=Path, default=DEFAULT_SUBCLUSTER_GROUPS_JSON,
-        help="Curated product-name lookup for RULE DESCRIPTION, keyed by SCG id.",
+        "--building-blocks-json", type=Path, default=DEFAULT_BUILDING_BLOCKS_JSON,
+        help="Curated building-block names for RULE DESCRIPTION, keyed by bb_id (default: %(default)s).",
     )
     return parser.parse_args()
 
@@ -80,12 +80,12 @@ def render_rule_block(rule_id: str, description: str, cutoff: int | None, rule: 
     return lines
 
 
-def _group_row(s: GroupSummary, include_bgcs: bool) -> str:
+def _group_row(s: GroupSummary, include_scs: bool) -> str:
     genes = ", ".join(s.gene_names) or "--"
     domains = " + ".join(s.representative_domains) or "--"
     contributes = "yes" if s.contributes else "no (no signature domain)"
-    if include_bgcs:
-        return f"| {s.group_id} | {genes} | {s.n_bgcs}/{s.n_bgcs_total} | {domains} | {contributes} |"
+    if include_scs:
+        return f"| {s.group_id} | {genes} | {s.n_scs}/{s.n_scs_total} | {domains} | {contributes} |"
     return f"| {s.group_id} | {genes} | {domains} | {contributes} |"
 
 
@@ -93,27 +93,27 @@ def build_warnings(
     core: list[GroupSummary],
     extra: list[GroupSummary],
     rule: RuleConditions,
-    unresolved_bgcs: list[str],
-    partial_bgcs: list[BgcSpan],
+    unresolved_scs: list[str],
+    partial_scs: list[ScSpan],
     description: str | None,
     rule_id: str,
-    subcluster_groups_json: Path,
+    building_blocks_json: Path,
 ) -> list[str]:
     warnings: list[str] = []
 
     if description is None:
         try:
-            json_display = subcluster_groups_json.relative_to(Path.cwd())
+            json_display = building_blocks_json.relative_to(Path.cwd())
         except ValueError:
-            json_display = subcluster_groups_json
+            json_display = building_blocks_json
         warnings.append(
             f"**No product name found for {rule_id} in `{json_display}`** "
             "-- DESCRIPTION left as a placeholder."
         )
-    if unresolved_bgcs:
-        warnings.append(f"**No GenBank file found for BGC(s):** {', '.join(unresolved_bgcs)}")
-    for s in partial_bgcs:
-        warnings.append(f"**Genes not found in {s.bgc_id}'s GenBank file:** {', '.join(s.unmatched)}")
+    if unresolved_scs:
+        warnings.append(f"**No GenBank file found for subcluster(s):** {', '.join(unresolved_scs)}")
+    for s in partial_scs:
+        warnings.append(f"**Genes not found in {s.sc_id}'s GenBank file:** {', '.join(s.unmatched)}")
     missing_core = [s.group_id for s in core if not s.contributes]
     if missing_core:
         warnings.append(
@@ -163,7 +163,7 @@ def render(
     group_name: str,
     summaries: list[GroupSummary],
     rule: RuleConditions,
-    spans: list[BgcSpan],
+    spans: list[ScSpan],
     cutoff: int | None,
     genbank_dir: Path,
     rule_id: str,
@@ -184,7 +184,7 @@ def render(
     )
     lines.append("")
     lines.append("```")
-    lines.extend(render_rule_block(rule_id, description or "<unknown -- not in subcluster_groups.json>", cutoff, rule))
+    lines.extend(render_rule_block(rule_id, description or "<unknown -- not in building_blocks.json>", cutoff, rule))
     lines.append("```")
     lines.append("")
 
@@ -200,7 +200,7 @@ def render(
     if core:
         lines.append("| Group | Genes | Representative domains | Contributes |")
         lines.append("|---|---|---|---|")
-        lines.extend(_group_row(s, include_bgcs=False) for s in core)
+        lines.extend(_group_row(s, include_scs=False) for s in core)
     else:
         lines.append("None.")
     lines.append("")
@@ -223,9 +223,9 @@ def render(
     lines.append("## Non-core groups (EXTENDERS)")
     lines.append("")
     if extra:
-        lines.append("| Group | Genes | BGCs | Representative domains | Contributes |")
+        lines.append("| Group | Genes | subclusters | Representative domains | Contributes |")
         lines.append("|---|---|---|---|---|")
-        lines.extend(_group_row(s, include_bgcs=True) for s in extra)
+        lines.extend(_group_row(s, include_scs=True) for s in extra)
         lines.append("")
         if rule.extenders:
             lines.append("```")
@@ -246,22 +246,22 @@ def render(
     if spans:
         lines.append(
             "antiSMASH looks CUTOFF kb to the left and right of each anchor CDS, so CUTOFF is a radius, "
-            "not the width of the whole locus. Per reference BGC in "
+            "not the width of the whole locus. Per reference subcluster in "
             f"`{genbank_dir_display}`, the radius is the smallest reach (edge to edge) that one "
             "CONDITIONS gene needs to cover every other CONDITIONS gene. CUTOFF is the largest radius "
-            "across BGCs, rounded up to the nearest 5 kb -- below that, "
+            "across subclusters, rounded up to the nearest 5 kb -- below that, "
             "some example's CONDITIONS genes never all fall within CUTOFF of a single anchor. The "
             "full span (all genes in the group, core and non-core) is shown for reference only. "
             "NEIGHBOURHOOD is always 0: CONDITIONS/EXTENDERS already require every group's own "
             "domains, so there's no extra accessory search radius left to justify."
         )
         lines.append("")
-        lines.append("| BGC | genes | matched in GenBank | span (kb) | radius (kb) |")
+        lines.append("| subcluster | genes | matched in GenBank | span (kb) | radius (kb) |")
         lines.append("|---|---|---|---|---|")
         for s in spans:
             span_str = f"{s.span_kb:.1f}" if s.span_kb is not None else "unresolved"
             radius_str = f"{s.radius_kb:.1f}" if s.radius_kb is not None else "unresolved"
-            lines.append(f"| {s.bgc_id} | {s.n_genes} | {s.n_matched}/{s.n_genes} | {span_str} | {radius_str} |")
+            lines.append(f"| {s.sc_id} | {s.n_genes} | {s.n_matched}/{s.n_genes} | {span_str} | {radius_str} |")
         lines.append("")
         if cutoff is not None:
             lines.append("```")
@@ -270,13 +270,13 @@ def render(
             lines.append("```")
         else:
             lines.append(
-                "**WARNING: no BGC's genes could be resolved against its GenBank file -- "
+                "**WARNING: no subcluster's genes could be resolved against its GenBank file -- "
                 "CUTOFF can't be estimated.**"
             )
     else:
         lines.append(
             f"*No GenBank directory found at `{genbank_dir_display}` -- CUTOFF can't be estimated. "
-            f"Pass --genbank-dir, or add data/genbanks/{group_name}/<bgc_id>.gbk files.*"
+            f"Pass --genbank-dir, or add data/genbanks/{group_name}/<sc_id>.gbk files.*"
         )
     lines.append("")
 
@@ -304,7 +304,7 @@ def discover_group_dirs(segments_dir: Path) -> list[Path]:
 
 
 def build_group_rule(
-    segment_dir: Path, genbank_dir: Path, subcluster_groups_json: Path, product_names: dict[str, str]
+    segment_dir: Path, genbank_dir: Path, building_blocks_json: Path, product_names: dict[str, str]
 ) -> tuple[str, list[str]]:
     """Build one group's rule_conditions.md and rule.txt; returns (rule_conditions text, warnings).
     Raises FileNotFoundError if the group's phase-1/2 inputs are incomplete.
@@ -321,12 +321,12 @@ def build_group_rule(
     summaries = build_group_summaries(groups_tsv, presence_tsv, group_domains_tsv)
     rule = build_conditions(summaries)
 
-    spans: list[BgcSpan] = []
+    spans: list[ScSpan] = []
     cutoff = None
     if genbank_dir.is_dir():
         memberships = load_groups_tsv(groups_tsv)
         condition_groups = {s.group_id for s in summaries if s.is_core and s.contributes}
-        spans = compute_bgc_spans(memberships, genbank_dir, condition_groups)
+        spans = compute_sc_spans(memberships, genbank_dir, condition_groups)
         cutoff = estimate_cutoff_kb(spans)
 
     rule_id = segment_dir.name.split("_", 1)[0]
@@ -334,10 +334,10 @@ def build_group_rule(
 
     core = [s for s in summaries if s.is_core]
     extra = [s for s in summaries if not s.is_core]
-    unresolved_bgcs = [s.bgc_id for s in spans if s.span_kb is None]
-    partial_bgcs = [s for s in spans if s.span_kb is not None and s.unmatched]
+    unresolved_scs = [s.sc_id for s in spans if s.span_kb is None]
+    partial_scs = [s for s in spans if s.span_kb is not None and s.unmatched]
     warnings = build_warnings(
-        core, extra, rule, unresolved_bgcs, partial_bgcs, description, rule_id, subcluster_groups_json,
+        core, extra, rule, unresolved_scs, partial_scs, description, rule_id, building_blocks_json,
     )
 
     text = render(
@@ -365,13 +365,13 @@ def main() -> int:
         print("error: --genbank-dir only applies to a single group; use --genbank-root instead", file=sys.stderr)
         return 1
 
-    product_names = load_product_names(args.subcluster_groups_json) if args.subcluster_groups_json.exists() else {}
+    product_names = load_product_names(args.building_blocks_json) if args.building_blocks_json.exists() else {}
 
     failed = []
     for group_dir in group_dirs:
         genbank_dir = args.genbank_dir or (args.genbank_root / group_dir.name)
         try:
-            text, warnings = build_group_rule(group_dir, genbank_dir, args.subcluster_groups_json, product_names)
+            text, warnings = build_group_rule(group_dir, genbank_dir, args.building_blocks_json, product_names)
         except FileNotFoundError as e:
             print(f"error: {e}", file=sys.stderr)
             failed.append(group_dir.name)

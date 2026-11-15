@@ -15,6 +15,7 @@ pip install -e ".[dev]"
   (headers `sc:<SC>|acc:<accession>|pid:|gid:|locustag:`)
 - `data/genbanks/<BB…>/<SC…>.gbk` -- each subcluster's reference record (cropped to its genes), needed to estimate CUTOFF
 - `data/pfam/Pfam-A.hmm` and `data/pfam/Pfam-A.clans.tsv`
+- `data/ncbi_pgap/hmm_PGAP.HMM.tgz` and `data/ncbi_pgap/hmm_PGAP.tsv` -- NCBI PGAP HMMs (TIGRFAM, NCBIFAM, PRK); the archive is read as is, no need to unpack it
 - `data/building_blocks.json` -- curated building-block names, SMILES and chemical class
 
 All three come from `../subcluster_collection/output/` (`build_jsons.py`, `export_fastas.py`, `export_genbanks.py`).
@@ -37,23 +38,25 @@ python scripts/segment_groups.py --fasta-dir data/fasta --out-dir output/segment
 
 Writes `segments.tsv`, `groups.tsv`, `presence.tsv` and `report.md`.
 
-### 2. Pfam domain mapping (hmmsearch)
+### 2. Pfam/PGAP domain mapping (hmmsearch)
 
 ```bash
 python scripts/pfam_domains.py --fasta-dir data/fasta --segments-dir output/segments
 ```
 
-Writes `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` works the same way as in step 1.
+Writes `domains.tsv`, `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` works the same way as in step 1.
 
-Domains are detected with Pfam's gathering threshold (GA), except for Pfams listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Use the same cutoff in the antiSMASH `hmmdetails.txt` entry.
+Both Pfam and the NCBI PGAP library are searched (`--no-pgap` for Pfam only). The `source` column says which library a hit comes from (Pfam, TIGRFAM, NCBIFAM, PRK), and `family_type` gives the PGAP family type (equivalog = one specific function). Representatives per group: TIGRFAM and NCBIFAM signature models first (most specific family type, then best E-value; overlapping ones compete); PRK models are listed but never representative, since they're full-length models with strict cutoffs that would make rules miss diverged homologs. A Pfam signature domain that a TIGRFAM/NCBIFAM representative covers (>= 50% of its envelope) is replaced by it (`replaced_by`); the remaining Pfam signature domains keep the one-per-clan selection. PGAP models are named by their label, with characters the rule grammar doesn't allow replaced by `_` (`PRK06545.2-4` -> `PRK06545_2-4`) and the accession appended where the label is also a Pfam name (`AAA` -> `AAA_TIGR02928`).
 
-Optional, to review genes without a normal Pfam hit:
+Domains are detected with each model's gathering threshold (GA), except for Pfam or PGAP models listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Use the same cutoff in the antiSMASH `hmmdetails.txt` entry.
+
+Optional, to review genes without a normal HMM hit:
 
 ```bash
-python scripts/no_pfam_hits.py
+python scripts/no_hmm_hits.py
 ```
 
-Writes `output/no_ga_pfam_hits.tsv`: one row per gene (segment) with no domain at GA (override-only hits don't count), its group context, its best hits from a Pfam search without cutoffs, and whether an override in `cutoff_overrides.tsv` recovers it.
+Writes `output/no_ga_hmm_hits.tsv`: one row per gene (segment) with no model from any library (Pfam, TIGRFAM, NCBIFAM, PRK) at GA (override-only hits don't count), its group context, its best hits from a Pfam + PGAP search without cutoffs (ranked by domain bitscore / GA, closest misses first), and whether an override in `cutoff_overrides.tsv` recovers it.
 
 ### 3. Build a RULE per group
 
@@ -95,7 +98,7 @@ python scripts/build_compound_details.py --rules-file output/subcluster_rules.tx
 python scripts/extract_rule_hmms.py --rules-file output/subcluster_rules.txt --out-dir output/hmms
 ```
 
-Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam domain the rules reference.
+Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP model the rules reference (PGAP models under their rule name).
 
 ### Notes
 

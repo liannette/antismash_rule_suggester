@@ -1,4 +1,4 @@
-"""End-to-end orchestration: scan Pfam domains once across every protein in every selected
+"""End-to-end orchestration: scan Pfam (and PGAP, if configured) domains once across every protein in every selected
 product group, then map onto each group's own phase-1 segments/groups.
 
 Proteins are deduplicated by (sc_id, protein_id) across groups before scanning -- a protein that
@@ -16,6 +16,7 @@ from pathlib import Path
 from ..phase1_io import load_groups_tsv, load_segments_tsv
 from ..segments.io_fasta import Protein, discover_group_dirs, load_group_proteins
 from .clans import Clan, load_pfam_clans
+from .libraries import PgapLibrary, load_pfam_names
 from .mapping import build_group_of_segment, compute_group_domains, map_domains_to_segments
 from .outputs import write_pfam_outputs
 from .params import PfamParams
@@ -34,6 +35,11 @@ def run_pfam(
     fasta_dir: Path, segments_dir: Path, params: PfamParams, clans_path: Path | None = None
 ) -> list[PfamGroupResult]:
     clan_map: dict[str, Clan] = load_pfam_clans(clans_path) if clans_path else {}
+    pgap = None
+    if params.pgap_hmm_path is not None:
+        if clans_path is None or params.pgap_metadata_path is None:
+            raise ValueError("PGAP needs the Pfam clans file (for Pfam names) and the PGAP metadata table")
+        pgap = PgapLibrary.load(params.pgap_hmm_path, params.pgap_metadata_path, load_pfam_names(clans_path))
     group_dirs = discover_group_dirs(fasta_dir)
 
     proteins_by_group: dict[str, list[Protein]] = {}
@@ -44,12 +50,15 @@ def run_pfam(
         for p in proteins:
             unique_proteins.setdefault((p.sc_id, p.protein_id or p.local_key), p)
 
-    print(f"Scanning {len(unique_proteins)} unique proteins against {params.hmm_path.name} ...")
-    all_domains = scan_pfam_domains(list(unique_proteins.values()), params)
+    libraries = params.hmm_path.name + (f" and {pgap.hmm_path.name} ({len(pgap.models)} models)" if pgap else "")
+    print(f"Scanning {len(unique_proteins)} unique proteins against {libraries} ...")
+    all_domains = scan_pfam_domains(list(unique_proteins.values()), params, pgap)
     domains_by_protein: dict[tuple[str, str], list] = defaultdict(list)
     for d in all_domains:
         domains_by_protein[(d.sc_id, d.protein_id)].append(d)
-    print(f"  {len(all_domains)} domain hits across {len(unique_proteins)} proteins")
+    n_pgap = sum(1 for d in all_domains if d.source != "Pfam")
+    print(f"  {len(all_domains)} domain hits ({len(all_domains) - n_pgap} Pfam, {n_pgap} PGAP) "
+          f"across {len(unique_proteins)} proteins")
 
     results = []
     for group_dir in group_dirs:

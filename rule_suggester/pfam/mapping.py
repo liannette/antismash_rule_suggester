@@ -84,6 +84,13 @@ class GroupDomain:
     any_straddling: bool
     best_i_evalue: float
     is_representative: bool = False
+    source: str = "Pfam"
+    family_type: str = ""
+    description: str = ""
+    replaced_by: str = ""  # signature not representative because this PGAP representative covers it
+
+
+Envelopes = dict[tuple[str, str], dict[str, list[tuple[int, int]]]]  # (group, acc) -> sc -> envelopes
 
 
 def compute_group_domains(
@@ -97,7 +104,8 @@ def compute_group_domains(
     scs_with_domain: dict[tuple[str, str], set[str]] = defaultdict(set)
     any_straddle: dict[tuple[str, str], bool] = defaultdict(bool)
     best_i_evalue: dict[tuple[str, str], float] = {}
-    pfam_names: dict[str, str] = {}
+    first_domain: dict[str, Domain] = {}
+    envelopes: Envelopes = defaultdict(lambda: defaultdict(list))
 
     for a in assignments:
         if a.segment_id is None:
@@ -106,11 +114,12 @@ def compute_group_domains(
         if group_id is None:
             continue
         key = (group_id, a.domain.pfam_acc)
-        pfam_names[a.domain.pfam_acc] = a.domain.pfam_name
+        first_domain.setdefault(a.domain.pfam_acc, a.domain)
         if a.straddling:
             any_straddle[key] = True
         else:
             scs_with_domain[key].add(a.domain.sc_id)
+            envelopes[key][a.domain.sc_id].append((a.domain.env_from, a.domain.env_to))
             if a.domain.i_evalue < best_i_evalue.get(key, float("inf")):
                 best_i_evalue[key] = a.domain.i_evalue
 
@@ -122,11 +131,12 @@ def compute_group_domains(
         prevalence = n_with / n_total if n_total else 0.0
         straddle = any_straddle.get(key, False)
         clan = clan_map.get(pfam_acc)
+        d = first_domain[pfam_acc]
         results.append(
             GroupDomain(
                 group_id=group_id,
                 pfam_acc=pfam_acc,
-                pfam_name=pfam_names.get(pfam_acc, ""),
+                pfam_name=d.pfam_name,
                 clan_acc=clan.acc if clan else "",
                 clan_name=clan.name if clan else "",
                 n_scs_with_domain=n_with,
@@ -135,25 +145,85 @@ def compute_group_domains(
                 is_signature=(prevalence >= params.min_prevalence and not straddle),
                 any_straddling=straddle,
                 best_i_evalue=best_i_evalue.get(key, float("inf")),
+                source=d.source,
+                family_type=d.family_type,
+                description=d.description,
             )
         )
-    return _select_representatives(results)
+    return _select_representatives(results, envelopes, params.replace_overlap, params.representative_pgap_sources)
 
 
-def _select_representatives(rows: list[GroupDomain]) -> list[GroupDomain]:
-    """Within each group, nominate one representative Pfam per clan: the signature domain with
-    the best (lowest) independent E-value. Signature Pfams with no clan assignment compete with
-    nobody, so each is its own representative.
+# PGAP family types, most specific first: equivalogs name one function, subfamilies/domains less so
+_FAMILY_RANK = {
+    "exception": 0, "equivalog": 0, "PfamEq": 1, "hypoth_equivalog": 1, "equivalog_domain": 1, "PfamAutoEq": 1,
+    "subfamily": 2, "subfamily_domain": 3, "domain": 3, "repeat": 4,
+}
+
+
+def _covers(envelopes: Envelopes, group_id: str, covering: str, covered: str, min_share: float) -> bool:
+    """True if model `covering` overlaps >= min_share of model `covered`'s envelope in a majority of
+    the subclusters where the group has both."""
+    a, b = envelopes.get((group_id, covering), {}), envelopes.get((group_id, covered), {})
+    shared = set(a) & set(b)
+    if not shared:
+        return False
+    n_covered = 0
+    for sc in shared:
+        if any(
+            (min(c_to, d_to) - max(c_from, d_from)) >= min_share * (d_to - d_from)
+            for c_from, c_to in a[sc] for d_from, d_to in b[sc]
+        ):
+            n_covered += 1
+    return 2 * n_covered > len(shared)
+
+
+def _select_representatives(
+    rows: list[GroupDomain], envelopes: Envelopes, min_share: float, pgap_sources: tuple[str, ...]
+) -> list[GroupDomain]:
+    """Within each group, among signature models:
+    1. PGAP models from pgap_sources (TIGRFAM, NCBIFAM; not PRK): most specific family type first
+       (then best i-Evalue); one overlapping a model already chosen is left out (replaced_by it).
+       PGAP models from other sources are never representative and replace nothing.
+    2. Pfam: a domain covered by a chosen PGAP representative is left out (replaced_by it).
+    3. Remaining Pfam: one representative per clan, the best (lowest) independent E-value; Pfams
+       with no clan compete with nobody, so each is its own representative.
     """
-    best_by_clan: dict[tuple[str, str], GroupDomain] = {}
+    by_group: dict[str, list[GroupDomain]] = defaultdict(list)
     for g in rows:
-        if not g.is_signature:
-            continue
-        clan_key = g.clan_acc or g.pfam_acc
-        key = (g.group_id, clan_key)
-        current = best_by_clan.get(key)
-        if current is None or g.best_i_evalue < current.best_i_evalue:
-            best_by_clan[key] = g
+        by_group[g.group_id].append(g)
 
-    representative_ids = {(g.group_id, g.pfam_acc) for g in best_by_clan.values()}
-    return [replace(g, is_representative=(g.group_id, g.pfam_acc) in representative_ids) for g in rows]
+    out = []
+    for group_id, group_rows in by_group.items():
+        signature = [g for g in group_rows if g.is_signature]
+        replaced: dict[str, str] = {}
+        representatives: set[str] = set()
+
+        chosen_pgap: list[GroupDomain] = []
+        for g in sorted((g for g in signature if g.source in pgap_sources),
+                        key=lambda g: (_FAMILY_RANK.get(g.family_type, 5), g.best_i_evalue, g.pfam_acc)):
+            winner = next((c for c in chosen_pgap
+                           if _covers(envelopes, group_id, c.pfam_acc, g.pfam_acc, min_share)
+                           or _covers(envelopes, group_id, g.pfam_acc, c.pfam_acc, min_share)), None)
+            if winner:
+                replaced[g.pfam_acc] = winner.pfam_name
+            else:
+                chosen_pgap.append(g)
+                representatives.add(g.pfam_acc)
+
+        best_by_clan: dict[str, GroupDomain] = {}
+        for g in signature:
+            if g.source != "Pfam":
+                continue
+            winner = next((c for c in chosen_pgap if _covers(envelopes, group_id, c.pfam_acc, g.pfam_acc, min_share)), None)
+            if winner:
+                replaced[g.pfam_acc] = winner.pfam_name
+                continue
+            clan_key = g.clan_acc or g.pfam_acc
+            current = best_by_clan.get(clan_key)
+            if current is None or g.best_i_evalue < current.best_i_evalue:
+                best_by_clan[clan_key] = g
+        representatives |= {g.pfam_acc for g in best_by_clan.values()}
+
+        out += [replace(g, is_representative=g.pfam_acc in representatives, replaced_by=replaced.get(g.pfam_acc, ""))
+                for g in group_rows]
+    return out

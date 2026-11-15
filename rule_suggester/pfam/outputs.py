@@ -1,4 +1,4 @@
-"""Writing Pfam domain outputs for one product group (spec Phase 2)."""
+"""Writing Pfam/PGAP domain outputs for one product group (spec Phase 2)."""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ def _write_domains_tsv(path: Path, assignments: list[DomainAssignment], clan_map
                 "sc", "protein_id", "gene_name", "pfam_acc", "pfam_name", "clan_acc", "clan_name",
                 "env_from", "env_to", "bitscore", "i_evalue",
                 "segment_id", "frac_domain_in_segment", "frac_segment_covered", "straddling", "passes_ga",
+                "source", "family_type", "description",
             ]
         )
         for a in sorted(assignments, key=lambda a: (a.domain.sc_id, a.domain.protein_id, a.domain.env_from)):
@@ -46,7 +47,7 @@ def _write_domains_tsv(path: Path, assignments: list[DomainAssignment], clan_map
                     clan.acc if clan else "", clan.name if clan else "",
                     d.env_from + 1, d.env_to, d.bitscore, d.i_evalue,
                     a.segment_id or "", f"{a.frac_domain_in_segment:.3f}", f"{a.frac_segment_covered:.3f}",
-                    a.straddling, d.passes_ga,
+                    a.straddling, d.passes_ga, d.source, d.family_type, d.description,
                 ]
             )
 
@@ -58,7 +59,7 @@ def _write_group_domains_tsv(path: Path, group_domains: list[GroupDomain]) -> No
             [
                 "group_id", "pfam_acc", "pfam_name", "clan_acc", "clan_name",
                 "n_scs_with_domain", "n_scs_total", "prevalence", "is_signature", "any_straddling",
-                "best_i_evalue", "is_representative",
+                "best_i_evalue", "is_representative", "source", "family_type", "description", "replaced_by",
             ]
         )
         for g in sorted(group_domains, key=lambda g: (g.group_id, -g.prevalence, g.pfam_acc)):
@@ -67,7 +68,7 @@ def _write_group_domains_tsv(path: Path, group_domains: list[GroupDomain]) -> No
                     g.group_id, g.pfam_acc, g.pfam_name, g.clan_acc, g.clan_name,
                     g.n_scs_with_domain, g.n_scs_total,
                     f"{g.prevalence:.3f}", g.is_signature, g.any_straddling,
-                    g.best_i_evalue, g.is_representative,
+                    g.best_i_evalue, g.is_representative, g.source, g.family_type, g.description, g.replaced_by,
                 ]
             )
 
@@ -80,7 +81,11 @@ def _write_pfam_report(
     params: PfamParams,
     all_group_ids: list[str],
 ) -> None:
-    lines = [f"# Pfam domain report: {group_name}", ""]
+    lines = [f"# Pfam/PGAP domain report: {group_name}", ""]
+    libraries = f"Pfam ({params.hmm_path.name})"
+    if params.pgap_hmm_path is not None:
+        libraries += f" and NCBI PGAP ({params.pgap_hmm_path.name}: TIGRFAM, NCBIFAM, PRK)"
+    lines += [f"Libraries searched: {libraries}, each model at its gathering threshold (GA) unless overridden.", ""]
 
     by_group: dict[str, list[GroupDomain]] = {}
     for g in group_domains:
@@ -93,25 +98,29 @@ def _write_pfam_report(
     lines.append("")
     lines.append(f"Signature = prevalence >= {params.min_prevalence} and not straddling.")
     lines.append(
-        "Representative = the signature domain with the best (lowest) independent E-value in its "
-        "clan; signature domains with no clan assignment are automatically representative."
+        f"Representative: {'/'.join(params.representative_pgap_sources)} signature models first (most specific family type, "
+        "then best E-value; overlapping ones compete; other PGAP models such as PRK are listed but never representative). A Pfam signature domain covered by a PGAP representative is "
+        f"replaced by it (>= {params.replace_overlap:.0%} of the Pfam envelope in most subclusters). Remaining Pfam "
+        "signature domains: the best (lowest) independent E-value per clan; Pfams with no clan are "
+        "automatically representative."
     )
     lines.append("")
     for group_id in sorted(set(all_group_ids) | set(by_group)):
         rows = sorted(
             by_group.get(group_id, []),
-            key=lambda g: (not g.is_signature, not g.is_representative, -g.prevalence, g.pfam_acc),
+            key=lambda g: (not g.is_signature, not g.is_representative, g.source == "Pfam", -g.prevalence, g.pfam_acc),
         )
         lines.append(f"### {group_id}")
         lines.append("")
         if rows:
-            lines.append("| Pfam | name | clan | subclusters with domain | signature | representative |")
-            lines.append("|---|---|---|---|---|---|")
+            lines.append("| model | name | source | type / clan | description | subclusters with domain | signature | representative |")
+            lines.append("|---|---|---|---|---|---|---|---|")
             for g in rows:
-                clan = f"{g.clan_acc} {g.clan_name}".strip() if g.clan_acc else ""
+                kind = g.family_type if g.source != "Pfam" else (f"{g.clan_acc} {g.clan_name}".strip() if g.clan_acc else "")
+                rep_text = "yes" if g.is_representative else (f"no (replaced by {g.replaced_by})" if g.replaced_by else "no")
                 lines.append(
-                    f"| {g.pfam_acc} | {g.pfam_name} | {clan} | {g.n_scs_with_domain}/{g.n_scs_total} | "
-                    f"{'yes' if g.is_signature else 'no'} | {'yes' if g.is_representative else 'no'} |"
+                    f"| {g.pfam_acc} | {g.pfam_name} | {g.source} | {kind} | {g.description} | "
+                    f"{g.n_scs_with_domain}/{g.n_scs_total} | {'yes' if g.is_signature else 'no'} | {rep_text} |"
                 )
             if not any(g.is_signature for g in rows):
                 no_signature.append(group_id)
@@ -123,7 +132,7 @@ def _write_pfam_report(
         else:
             no_hits.append(group_id)
             lines.append(
-                f"**WARNING: no Pfam domain hits at all in {group_id}** -- it exists in Step 1's "
+                f"**WARNING: no Pfam/PGAP hits at all in {group_id}** -- it exists in Step 1's "
                 "segment grouping but has no signature/representative domain here, and can't "
                 "contribute to CONDITIONS/EXTENDERS in Step 3."
             )
@@ -135,7 +144,7 @@ def _write_pfam_report(
     lines.append("## Straddling domains (possible misplaced breakpoint)")
     lines.append("")
     if straddling:
-        lines.append("| subcluster | protein | Pfam | name | env range | best segment share |")
+        lines.append("| subcluster | protein | model | name | env range | best segment share |")
         lines.append("|---|---|---|---|---|---|")
         for a in sorted(straddling, key=lambda a: (a.domain.sc_id, a.domain.protein_id, a.domain.env_from)):
             d = a.domain
@@ -151,7 +160,7 @@ def _write_pfam_report(
     lines.append("")
     if no_hits or no_signature:
         if no_hits:
-            lines.append(f"**No Pfam domain hits at all:** {', '.join(sorted(no_hits))}")
+            lines.append(f"**No Pfam/PGAP hits at all:** {', '.join(sorted(no_hits))}")
         if no_signature:
             lines.append(f"**Hits found, but none reach the signature threshold:** {', '.join(sorted(no_signature))}")
     else:
@@ -164,9 +173,9 @@ def _write_pfam_report(
 def _cutoff_override_section(assignments: list[DomainAssignment], params: PfamParams) -> list[str]:
     lines = ["## Cutoff overrides", ""]
     if not params.cutoff_overrides:
-        return lines + ["None -- every Pfam uses its gathering threshold (GA).", ""]
+        return lines + ["None -- every model uses its gathering threshold (GA).", ""]
     lines.append(
-        "These Pfams use the bitscore cutoff below instead of GA (applied to sequence and domain score): "
+        "These models use the bitscore cutoff below instead of GA (applied to sequence and domain score): "
         + ", ".join(f"{acc} {cut:g}" for acc, cut in sorted(params.cutoff_overrides.items()))
         + "."
     )
@@ -177,7 +186,7 @@ def _cutoff_override_section(assignments: list[DomainAssignment], params: PfamPa
         return lines
     lines.append("Hits in this group detected only because of an override (below GA):")
     lines.append("")
-    lines.append("| subcluster | protein | gene | Pfam | name | domain bitscore | override | segment |")
+    lines.append("| subcluster | protein | gene | model | name | domain bitscore | override | segment |")
     lines.append("|---|---|---|---|---|---|---|---|")
     for a in sorted(below_ga, key=lambda a: (a.domain.pfam_acc, a.domain.sc_id, a.domain.protein_id)):
         d = a.domain

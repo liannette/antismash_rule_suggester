@@ -55,7 +55,7 @@ def write_combined_report(group_dir: Path) -> Path:
 
     steps = [
         ("Step 1: Segment grouping", group_dir / "report.md", "scripts/segment_groups.py"),
-        ("Step 2: Pfam domains", group_dir / "pfam_report.md", "scripts/pfam_domains.py"),
+        ("Step 2: Pfam/PGAP domains", group_dir / "pfam_report.md", "scripts/pfam_domains.py"),
         ("Step 3: Rule conditions", group_dir / "rule_conditions.md", "scripts/build_rule.py"),
     ]
     texts = [(label, path.read_text().strip() if path.exists() else None, path, script) for label, path, script in steps]

@@ -16,13 +16,20 @@ _IDENTIFIER_RE = re.compile(r"(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]+")
 _CONDITIONS_RE = re.compile(r"^\s*CONDITIONS(.*?)(?=^\s*EXTENDERS\b|\Z)", re.DOTALL | re.MULTILINE)
 _EXTENDERS_RE = re.compile(r"^\s*EXTENDERS(.*?)\Z", re.DOTALL | re.MULTILINE)
 _RULE_ID_RE = re.compile(r"^RULE\s+(\S+)", re.MULTILINE)
+_COMMENT_RE = re.compile(r"#.*")
+
+
+def strip_comments(rules_text: str) -> str:
+    """Drop '#' comments (to end of line), e.g. the '# MANUAL' / '# WARNING' notes step 3 writes,
+    so their words aren't read as identifiers or rule ids."""
+    return _COMMENT_RE.sub("", rules_text)
 
 
 def extract_rule_ids(rules_text: str) -> list[str]:
     """Every RULE id in a combined rules file, in file order -- e.g. to know which rows a
     matching compound_details.txt needs (antiSMASH KeyErrors on load if any RULE is missing one).
     """
-    return _RULE_ID_RE.findall(rules_text)
+    return _RULE_ID_RE.findall(strip_comments(rules_text))
 
 
 def extract_domain_ids(rules_text: str) -> set[str]:
@@ -31,7 +38,7 @@ def extract_domain_ids(rules_text: str) -> set[str]:
     name or rule id that happens to look like an identifier doesn't get pulled in by mistake.
     """
     ids: set[str] = set()
-    for block in re.split(r"(?=^RULE )", rules_text, flags=re.MULTILINE):
+    for block in re.split(r"(?=^RULE )", strip_comments(rules_text), flags=re.MULTILINE):
         if not block.lstrip().startswith("RULE "):
             continue
         for pattern in (_CONDITIONS_RE, _EXTENDERS_RE):

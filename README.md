@@ -47,6 +47,14 @@ Writes `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` works the same wa
 
 Domains are detected with Pfam's gathering threshold (GA), except for Pfams listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Use the same cutoff in the antiSMASH `hmmdetails.txt` entry.
 
+Optional, to review genes without a normal Pfam hit:
+
+```bash
+python scripts/no_pfam_hits.py
+```
+
+Writes `output/no_ga_pfam_hits.tsv`: one row per gene (segment) with no domain at GA (override-only hits don't count), its group context, its best hits from a Pfam search without cutoffs, and whether an override in `cutoff_overrides.tsv` recovers it.
+
 ### 3. Build a RULE per group
 
 `--segments-dir` accepts a single group directory or the parent directory:

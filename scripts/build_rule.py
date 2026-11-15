@@ -437,6 +437,9 @@ def main() -> int:
               file=sys.stderr)
 
     failed = []
+    with_warnings: list[str] = []
+    dropped: list[str] = []
+    manual_fields: list[str] = []
     for group_dir in group_dirs:
         genbank_dir = args.genbank_dir or (args.genbank_root / group_dir.name)
         try:
@@ -447,11 +450,21 @@ def main() -> int:
             failed.append(group_dir.name)
             continue
 
+        rule_id = group_dir.name.split("_", 1)[0]
+        manual = manual_rules.get(rule_id)
+        if manual is not None and manual.drop:
+            dropped.append(rule_id)
+        else:
+            if warnings:
+                with_warnings.append(rule_id)
+            if manual is not None:
+                manual_fields.append(rule_id)
+
         if single_group:
             print(text)
-            print(f"Written to {group_dir / 'rule_conditions.md'} and {group_dir / 'rule.txt'}", file=sys.stderr)
+            print(f"Written to {group_dir / 'rule_conditions.md'} and {group_dir / 'rule.txt'} "
+                  f"({len(warnings)} warning(s))", file=sys.stderr)
         else:
-            manual = manual_rules.get(group_dir.name.split("_", 1)[0])
             status = f"{len(warnings)} warning(s)" if warnings else "ok"
             if manual is not None:
                 status += ", DROPPED (manual)" if manual.drop else ", manual fields"
@@ -459,6 +472,12 @@ def main() -> int:
 
     if not single_group:
         print(f"Done: {len(group_dirs) - len(failed)} group(s) built, {len(failed)} failed.")
+        print(f"  {len(with_warnings)} with warnings (skipped by combine_rules.py)"
+              + (f": {', '.join(with_warnings)}" if with_warnings else ""))
+        print(f"  {len(dropped)} dropped in {args.manual_rules.name}" + (f": {', '.join(dropped)}" if dropped else ""))
+        print(f"  {len(manual_fields)} with hand-written fields" + (f": {', '.join(manual_fields)}" if manual_fields else ""))
+        n_clean = len(group_dirs) - len(failed) - len(with_warnings) - len(dropped)
+        print(f"  {n_clean} ready for combine_rules.py")
     return 1 if failed else 0
 
 

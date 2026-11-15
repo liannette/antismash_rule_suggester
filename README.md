@@ -45,6 +45,8 @@ python scripts/pfam_domains.py --fasta-dir data/fasta --segments-dir output/segm
 
 Writes `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` works the same way as in step 1.
 
+Domains are detected with Pfam's gathering threshold (GA), except for Pfams listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Use the same cutoff in the antiSMASH `hmmdetails.txt` entry.
+
 ### 3. Build a RULE per group
 
 `--segments-dir` accepts a single group directory or the parent directory:

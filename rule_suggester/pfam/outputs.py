@@ -34,7 +34,7 @@ def _write_domains_tsv(path: Path, assignments: list[DomainAssignment], clan_map
             [
                 "sc", "protein_id", "gene_name", "pfam_acc", "pfam_name", "clan_acc", "clan_name",
                 "env_from", "env_to", "bitscore", "i_evalue",
-                "segment_id", "frac_domain_in_segment", "frac_segment_covered", "straddling",
+                "segment_id", "frac_domain_in_segment", "frac_segment_covered", "straddling", "passes_ga",
             ]
         )
         for a in sorted(assignments, key=lambda a: (a.domain.sc_id, a.domain.protein_id, a.domain.env_from)):
@@ -46,7 +46,7 @@ def _write_domains_tsv(path: Path, assignments: list[DomainAssignment], clan_map
                     clan.acc if clan else "", clan.name if clan else "",
                     d.env_from + 1, d.env_to, d.bitscore, d.i_evalue,
                     a.segment_id or "", f"{a.frac_domain_in_segment:.3f}", f"{a.frac_segment_covered:.3f}",
-                    a.straddling,
+                    a.straddling, d.passes_ga,
                 ]
             )
 
@@ -129,6 +129,8 @@ def _write_pfam_report(
             )
         lines.append("")
 
+    lines.extend(_cutoff_override_section(assignments, params))
+
     straddling = [a for a in assignments if a.straddling]
     lines.append("## Straddling domains (possible misplaced breakpoint)")
     lines.append("")
@@ -157,3 +159,31 @@ def _write_pfam_report(
     lines.append("")
 
     path.write_text("\n".join(lines))
+
+
+def _cutoff_override_section(assignments: list[DomainAssignment], params: PfamParams) -> list[str]:
+    lines = ["## Cutoff overrides", ""]
+    if not params.cutoff_overrides:
+        return lines + ["None -- every Pfam uses its gathering threshold (GA).", ""]
+    lines.append(
+        "These Pfams use the bitscore cutoff below instead of GA (applied to sequence and domain score): "
+        + ", ".join(f"{acc} {cut:g}" for acc, cut in sorted(params.cutoff_overrides.items()))
+        + "."
+    )
+    lines.append("")
+    below_ga = [a for a in assignments if not a.domain.passes_ga]
+    if not below_ga:
+        lines += ["No hit in this group depends on an override.", ""]
+        return lines
+    lines.append("Hits in this group detected only because of an override (below GA):")
+    lines.append("")
+    lines.append("| subcluster | protein | gene | Pfam | name | domain bitscore | override | segment |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for a in sorted(below_ga, key=lambda a: (a.domain.pfam_acc, a.domain.sc_id, a.domain.protein_id)):
+        d = a.domain
+        lines.append(
+            f"| {d.sc_id} | {d.protein_id} | {d.gene_name} | {d.pfam_acc} | {d.pfam_name} | "
+            f"{d.bitscore:.1f} | {params.cutoff_overrides[d.pfam_acc]:g} | {a.segment_id or '-'} |"
+        )
+    lines.append("")
+    return lines

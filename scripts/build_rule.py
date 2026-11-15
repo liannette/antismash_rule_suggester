@@ -19,17 +19,21 @@ may need manual editing; that detail is there to make checking it easier.
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.phase1_io import load_groups_tsv
 from rule_suggester.rules.conditions import GroupSummary, RuleConditions, build_conditions, build_group_summaries
+from rule_suggester.export.parse import _IDENTIFIER_RE, _KEYWORDS
 from rule_suggester.rules.gene_ranges import ScSpan, compute_sc_spans, estimate_cutoff_kb
+from rule_suggester.rules.manual import ManualRule, load_manual_rules
 from rule_suggester.rules.product_names import load_product_names, sanitize_description
 
 DEFAULT_GENBANK_ROOT = Path(__file__).resolve().parent.parent / "data" / "genbanks"
 DEFAULT_BUILDING_BLOCKS_JSON = Path(__file__).resolve().parent.parent / "data" / "building_blocks.json"
+DEFAULT_MANUAL_RULES = Path(__file__).resolve().parent.parent / "data" / "manual_rules.tsv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,7 +54,16 @@ def parse_args() -> argparse.Namespace:
         "--building-blocks-json", type=Path, default=DEFAULT_BUILDING_BLOCKS_JSON,
         help="Curated building-block names for RULE DESCRIPTION, keyed by bb_id (default: %(default)s).",
     )
+    parser.add_argument(
+        "--manual-rules", type=Path, default=DEFAULT_MANUAL_RULES,
+        help="Hand-written CONDITIONS/EXTENDERS/CUTOFF/DROP per rule (rule_suggester/rules/manual.py). "
+             "Used if the file exists; default: %(default)s",
+    )
     return parser.parse_args()
+
+
+def _identifiers(condition: str) -> set[str]:
+    return set(_IDENTIFIER_RE.findall(condition)) - _KEYWORDS
 
 
 def _format_conditions_multiline(terms: list[str], keyword: str) -> list[str]:
@@ -98,8 +111,11 @@ def build_warnings(
     description: str | None,
     rule_id: str,
     building_blocks_json: Path,
+    manual: ManualRule | None = None,
+    known_domains: set[str] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
+    manual_conditions = manual is not None and manual.conditions is not None
 
     if description is None:
         try:
@@ -115,7 +131,7 @@ def build_warnings(
     for s in partial_scs:
         warnings.append(f"**Genes not found in {s.sc_id}'s GenBank file:** {', '.join(s.unmatched)}")
     missing_core = [s.group_id for s in core if not s.contributes]
-    if missing_core:
+    if missing_core and not manual_conditions:
         warnings.append(
             f"**No signature domain, excluded from CONDITIONS:** {', '.join(missing_core)}"
         )
@@ -124,15 +140,24 @@ def build_warnings(
         warnings.append(
             f"**No signature domain, excluded from EXTENDERS:** {', '.join(missing_extra)}"
         )
-    if not core:
+    if not core and not manual_conditions:
         warnings.append("**No core groups at all** -- CONDITIONS can't anchor a rule on this product group.")
-    if rule.duplicate_condition_groups:
+    if rule.duplicate_condition_groups and not manual_conditions:
         for term, group_ids in rule.duplicate_condition_groups.items():
             warnings.append(
                 f"**Duplicate CONDITIONS term across different core groups:** {', '.join(group_ids)} "
-                f"all reduce to `{term}` -- can't be folded into repeatable() since it has more than "
-                "one domain; check whether these are genuinely distinct genes."
+                f"all reduce to `{term}` -- one gene satisfies it, and it can't be folded into repeatable() "
+                "automatically since it has more than one domain; write the CONDITIONS by hand in "
+                "data/manual_rules.tsv if both genes should be required."
             )
+    if manual is not None and known_domains is not None:
+        for field_name, value in (("CONDITIONS", manual.conditions), ("EXTENDERS", manual.extenders)):
+            unknown = sorted(_identifiers(value) - known_domains) if value and value != "-" else []
+            if unknown:
+                warnings.append(
+                    f"**Manual {field_name} uses identifier(s) that are no signature model of any group here:** "
+                    f"{', '.join(unknown)} -- check for typos (names as in group_domains.tsv)."
+                )
     if rule.redundant_extenders:
         for dominated, dominating in rule.redundant_extenders:
             warnings.append(
@@ -144,7 +169,8 @@ def build_warnings(
 
 
 def render_rule_block_with_warnings(
-    rule_id: str, description: str, cutoff: int | None, rule: RuleConditions, warnings: list[str]
+    rule_id: str, description: str, cutoff: int | None, rule: RuleConditions, warnings: list[str],
+    manual: ManualRule | None = None,
 ) -> list[str]:
     """The rule.txt content: the RULE block, preceded by a '#'-commented summary of any
     warnings, so a rule copied out of this file on its own still carries that context
@@ -155,7 +181,12 @@ def render_rule_block_with_warnings(
         lines.append(f"# WARNING: {len(warnings)} warning(s) below -- see rule_conditions.md for full detail.")
         lines.extend(f"# - {w.replace('**', '')}" for w in warnings)
         lines.append("")
+    if manual is not None and not manual.drop:
+        lines.append("# MANUAL (data/manual_rules.tsv): " + ("; ".join(manual.notes) or "hand-written fields"))
     lines.extend(render_rule_block(rule_id, description, cutoff, rule))
+    if manual is not None and manual.drop:
+        reason = "; ".join(manual.notes) or "no reason given"
+        lines = [f"# DROPPED (data/manual_rules.tsv): {reason}"] + [f"# {line}" for line in lines]
     return lines
 
 
@@ -169,11 +200,16 @@ def render(
     rule_id: str,
     description: str | None,
     warnings: list[str],
+    manual: ManualRule | None = None,
 ) -> str:
     core = [s for s in summaries if s.is_core]
     extra = [s for s in summaries if not s.is_core]
 
     lines = [f"# Rule conditions: {group_name}", ""]
+    if manual is not None:
+        what = "DROPPED -- left out of combine_rules.py" if manual.drop else "hand-written fields applied"
+        lines += [f"**Manual rule (data/manual_rules.tsv): {what}.**", ""]
+        lines += [f"- {n}" for n in manual.notes] + [""]
 
     lines.append("## RULE block")
     lines.append("")
@@ -204,6 +240,12 @@ def render(
     else:
         lines.append("None.")
     lines.append("")
+    merged = [s for s in core if s.member_groups]
+    for s in merged:
+        lines.append(
+            f"Note: {', '.join(s.member_groups)} never share a subcluster but together cover all of them and share "
+            f"{', '.join(sorted(s.signature_domains))} -- merged into core group {s.group_id}."
+        )
     if rule.repeated_domains:
         for domain, group_ids in rule.repeated_domains.items():
             lines.append(
@@ -211,6 +253,7 @@ def render(
                 f"({', '.join(group_ids)}) -- folded into `repeatable({len(group_ids)}, [{domain}])` "
                 "to require that many separate genes, instead of one deduped 'and' term."
             )
+    if merged or rule.repeated_domains:
         lines.append("")
     if rule.conditions:
         lines.append("```")
@@ -304,7 +347,8 @@ def discover_group_dirs(segments_dir: Path) -> list[Path]:
 
 
 def build_group_rule(
-    segment_dir: Path, genbank_dir: Path, building_blocks_json: Path, product_names: dict[str, str]
+    segment_dir: Path, genbank_dir: Path, building_blocks_json: Path, product_names: dict[str, str],
+    manual_rules: dict[str, ManualRule] | None = None,
 ) -> tuple[str, list[str]]:
     """Build one group's rule_conditions.md and rule.txt; returns (rule_conditions text, warnings).
     Raises FileNotFoundError if the group's phase-1/2 inputs are incomplete.
@@ -318,36 +362,51 @@ def build_group_rule(
             f"{segment_dir} is missing {', '.join(missing)} (run segment_groups.py and pfam_domains.py first)"
         )
 
-    summaries = build_group_summaries(groups_tsv, presence_tsv, group_domains_tsv)
+    rule_id = segment_dir.name.split("_", 1)[0]
+    manual = (manual_rules or {}).get(rule_id)
+    # hand-written CONDITIONS replace whatever a merge would contribute, so keep the groups as they are
+    summaries = build_group_summaries(groups_tsv, presence_tsv, group_domains_tsv,
+                                      merge_complementary=manual is None or manual.conditions is None)
     rule = build_conditions(summaries)
+
+    condition_groups = {g for s in summaries if s.is_core and s.contributes for g in s.groups}
+    if manual is not None and manual.conditions is not None:
+        rule = replace(rule, conditions=manual.conditions, condition_terms=[manual.conditions],
+                       repeated_domains={}, duplicate_condition_groups={}, redundant_with_conditions=[])
+        wanted = _identifiers(manual.conditions)
+        condition_groups = {g for s in summaries if s.all_signature_domains & wanted for g in s.groups}
+    if manual is not None and manual.extenders is not None:
+        rule = replace(rule, extenders=None if manual.extenders == "-" else manual.extenders, redundant_extenders=[])
 
     spans: list[ScSpan] = []
     cutoff = None
     if genbank_dir.is_dir():
         memberships = load_groups_tsv(groups_tsv)
-        condition_groups = {s.group_id for s in summaries if s.is_core and s.contributes}
         spans = compute_sc_spans(memberships, genbank_dir, condition_groups)
         cutoff = estimate_cutoff_kb(spans)
+    if manual is not None and manual.cutoff is not None:
+        cutoff = manual.cutoff
 
-    rule_id = segment_dir.name.split("_", 1)[0]
     description = product_names.get(rule_id)
 
     core = [s for s in summaries if s.is_core]
     extra = [s for s in summaries if not s.is_core]
     unresolved_scs = [s.sc_id for s in spans if s.span_kb is None]
     partial_scs = [s for s in spans if s.span_kb is not None and s.unmatched]
+    known_domains = {d for s in summaries for d in s.all_signature_domains}
     warnings = build_warnings(
         core, extra, rule, unresolved_scs, partial_scs, description, rule_id, building_blocks_json,
+        manual, known_domains,
     )
 
     text = render(
         segment_dir.name, summaries, rule, spans, cutoff, genbank_dir,
-        rule_id, description, warnings,
+        rule_id, description, warnings, manual,
     )
     (segment_dir / "rule_conditions.md").write_text(text)
 
     rule_block_lines = render_rule_block_with_warnings(
-        rule_id, description or "<unknown>", cutoff, rule, warnings,
+        rule_id, description or "<unknown>", cutoff, rule, warnings, manual,
     )
     (segment_dir / "rule.txt").write_text("\n".join(rule_block_lines) + "\n")
     return text, warnings
@@ -366,12 +425,23 @@ def main() -> int:
         return 1
 
     product_names = load_product_names(args.building_blocks_json) if args.building_blocks_json.exists() else {}
+    try:
+        manual_rules = load_manual_rules(args.manual_rules) if args.manual_rules.exists() else {}
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    known_ids = {d.name.split("_", 1)[0] for d in group_dirs}
+    unknown_ids = sorted(set(manual_rules) - known_ids)
+    if unknown_ids and not single_group:
+        print(f"warning: {args.manual_rules} has rule(s) with no group directory: {', '.join(unknown_ids)}",
+              file=sys.stderr)
 
     failed = []
     for group_dir in group_dirs:
         genbank_dir = args.genbank_dir or (args.genbank_root / group_dir.name)
         try:
-            text, warnings = build_group_rule(group_dir, genbank_dir, args.building_blocks_json, product_names)
+            text, warnings = build_group_rule(group_dir, genbank_dir, args.building_blocks_json, product_names,
+                                              manual_rules)
         except FileNotFoundError as e:
             print(f"error: {e}", file=sys.stderr)
             failed.append(group_dir.name)
@@ -381,7 +451,10 @@ def main() -> int:
             print(text)
             print(f"Written to {group_dir / 'rule_conditions.md'} and {group_dir / 'rule.txt'}", file=sys.stderr)
         else:
+            manual = manual_rules.get(group_dir.name.split("_", 1)[0])
             status = f"{len(warnings)} warning(s)" if warnings else "ok"
+            if manual is not None:
+                status += ", DROPPED (manual)" if manual.drop else ", manual fields"
             print(f"  {group_dir.name}: {status}")
 
     if not single_group:

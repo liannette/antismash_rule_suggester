@@ -109,10 +109,12 @@ def compute_sc_spans(
 def estimate_cutoff_kb(spans: list[ScSpan], round_to: int = 5) -> int | None:
     """CUTOFF (kb): the largest anchor radius across all resolvable example subclusters, rounded up to the
     nearest round_to kb. CUTOFF needs to be at least every example's radius, or that subcluster's
-    CONDITIONS genes would never all fall within CUTOFF of a single anchor. None if no subcluster's
-    CONDITIONS genes could be resolved at all.
+    CONDITIONS genes would never all fall within CUTOFF of a single anchor. At least round_to kb:
+    genes that touch in every example give radius 0, but CUTOFF 0 would miss the same genes in a
+    genome with even a small gap between them. None if no subcluster's CONDITIONS genes could be
+    resolved at all.
     """
     resolvable = [s.radius_kb for s in spans if s.radius_kb is not None]
     if not resolvable:
         return None
-    return math.ceil(max(resolvable) / round_to) * round_to
+    return max(round_to, math.ceil(max(resolvable) / round_to) * round_to)

@@ -73,8 +73,10 @@ python scripts/build_rule.py --segments-dir output/segments
 
 Writes `rule.txt` (the RULE block) and `rule_conditions.md` (the per-group detail and warnings behind it). GenBank files are read from `data/genbanks/<group dir name>/` by default; change the parent with `--genbank-root`, or for a single group point `--genbank-dir` straight at its GenBank directory.
 
-- CUTOFF: for each subcluster, the smallest edge-to-edge reach that one CONDITIONS gene needs to cover all the other CONDITIONS genes (antiSMASH searches CUTOFF kb either side of an anchor CDS). The largest of these across subclusters, rounded up to the nearest 5 kb.
+- CUTOFF: for each subcluster, the smallest edge-to-edge reach that one CONDITIONS gene needs to cover all the other CONDITIONS genes (antiSMASH searches CUTOFF kb either side of an anchor CDS). The largest of these across subclusters, rounded up to the nearest 5 kb, and at least 5 kb (genes that touch in every example would otherwise give CUTOFF 0).
 - NEIGHBOURHOOD is always 0.
+- Complementary groups: non-core groups that never share a subcluster, together cover all of them and share a signature domain (one function split by step 1, e.g. a divergent ortholog) are merged into one core group (`G03+G04`) whose representatives are the shared signature domains.
+- `data/manual_rules.tsv` (columns `rule_id`, `field`, `value`, `note`) holds hand-written changes: `CONDITIONS` replaces the computed CONDITIONS (antiSMASH syntax, one line), `EXTENDERS` replaces EXTENDERS (`-` = none), `CUTOFF` sets CUTOFF, `DROP` leaves the rule out of step 5. Use it for what the automatic rules can't express, e.g. alternative routes (`a or (b and c)`) or two paralogs that should both be required (`repeatable(2, [x])`). Manual rules are marked `# MANUAL` / `# DROPPED` in `rule.txt`.
 
 ### 4. Combined report (optional, for review)
 
@@ -90,7 +92,7 @@ Merges `report.md`, `pfam_report.md` and `rule.txt` into `combined_report.md`.
 python scripts/combine_rules.py
 ```
 
-Writes `output/subcluster_rules.txt`. Groups whose `rule.txt` starts with `# WARNING` are skipped: check their `rule_conditions.md`, fix them, and re-run.
+Writes `output/subcluster_rules.txt`. Groups whose `rule.txt` starts with `# WARNING` are skipped: check their `rule_conditions.md`, fix them, and re-run. Rules dropped in `data/manual_rules.tsv` are skipped too.
 
 ### 6. antiSMASH support files
 
@@ -99,7 +101,7 @@ python scripts/build_compound_details.py --rules-file output/subcluster_rules.tx
 python scripts/extract_rule_hmms.py --rules-file output/subcluster_rules.txt --out-dir output/hmms
 ```
 
-Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP model the rules reference (PGAP models under their rule name).
+Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP/smCOG model the rules reference (PGAP models under their rule name), plus `cutoffs.tsv`. Each `.hmm`'s GA line is the cutoff antiSMASH should use, and `cutoffs.tsv` lists them for `hmmdetails.txt`: a cutoff override if there is one, PGAP models GA x 0.9 (`--pgap-cutoff-factor`; step 2 picks PGAP representatives at the full GA, the lower antiSMASH cutoff leaves room for homologs that score a little lower), the curated cutoff for smCOGs, otherwise Pfam GA.
 
 ### Notes
 

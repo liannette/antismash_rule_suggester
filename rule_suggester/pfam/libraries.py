@@ -13,7 +13,7 @@ import csv
 import re
 import tarfile
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pyhmmer.plan7 import HMM, HMMFile
@@ -136,18 +136,22 @@ class SmcogLibrary:
 
     hmm_path: Path
     profiles: dict[str, float]  # smCOG id -> bitscore cutoff
+    descriptions: dict[str, str] = field(default_factory=dict)  # smCOG id -> description, filled while iterating
 
-    def iter_hmms(self) -> Iterator[HMM]:
+    def iter_hmms(self, apply_cutoffs: bool = True) -> Iterator[HMM]:
+        """apply_cutoffs=False (step 6): only NAME is changed, the profile is otherwise written as shipped."""
         found = set()
         for hmm in iter_hmm_file(self.hmm_path):
             sid, _, desc = _text(hmm.name).partition(":")
             if sid not in self.profiles:
                 continue
             found.add(sid)
+            self.descriptions[sid] = desc.replace("_", " ")
             hmm.name = sid
-            hmm.accession = sid
-            hmm.description = desc.replace("_", " ")
-            hmm.cutoffs.gathering = (self.profiles[sid], self.profiles[sid])
+            if apply_cutoffs:
+                hmm.accession = sid
+                hmm.description = self.descriptions[sid]
+                hmm.cutoffs.gathering = (self.profiles[sid], self.profiles[sid])
             yield hmm
         missing = sorted(set(self.profiles) - found)
         if missing:

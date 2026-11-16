@@ -49,7 +49,7 @@ Writes `domains.tsv`, `group_domains.tsv` and `pfam_report.md`. `--fasta-dir` wo
 
 Pfam, the NCBI PGAP library (`--no-pgap` to skip it) and the smCOG profiles listed in `data/smcogs/smcog_profiles.tsv` (columns `smcog_id`, `cutoff`, `note`; smCOGs have no GA, so the curated bitscore cutoff is used instead -- pick it from a clear score gap between target and other genes, since antiSMASH's own smCOG calls only keep each gene's best profile) are searched. The `source` column says which library a hit comes from (Pfam, TIGRFAM, NCBIFAM, PRK, smCOG), and `family_type` gives the PGAP family type (equivalog = one specific function). Representatives per group: curated smCOG signature profiles first (named `SMCOG1147` etc. in rules), then TIGRFAM and NCBIFAM signature models (most specific family type, then best E-value; overlapping ones compete); PRK models are listed but never representative, since they're full-length models with strict cutoffs that would make rules miss diverged homologs. A Pfam signature domain that an smCOG/TIGRFAM/NCBIFAM representative covers (>= 50% of its envelope) is replaced by it (`replaced_by`); the remaining Pfam signature domains keep the one-per-clan selection. PGAP models are named by their label, with characters the rule grammar doesn't allow replaced by `_` (`PRK06545.2-4` -> `PRK06545_2-4`) and the accession appended where the label is also a Pfam name (`AAA` -> `AAA_TIGR02928`).
 
-Domains are detected with each model's gathering threshold (GA), except for Pfam or PGAP models listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Use the same cutoff in the antiSMASH `hmmdetails.txt` entry.
+Domains are detected with each model's gathering threshold (GA), except for Pfam or PGAP models listed in `data/pfam/cutoff_overrides.tsv` (columns `pfam_acc`, `cutoff`, `note`; another file via `--cutoff-overrides`). For those, the given bitscore replaces both GA values (sequence and domain). `domains.tsv` marks hits that only pass because of an override (`passes_ga = False`), and `pfam_report.md` lists them under "Cutoff overrides". Step 6 writes the same cutoff into `hmmdetails.txt`.
 
 Optional, to review genes without a normal HMM hit:
 
@@ -98,12 +98,11 @@ Writes `output/subcluster_rules.txt`. Groups whose `rule.txt` starts with `# WAR
 
 ```bash
 python scripts/build_compound_details.py --rules-file output/subcluster_rules.txt
-python scripts/extract_rule_hmms.py --rules-file output/subcluster_rules.txt --out-dir output/hmms
+python scripts/extract_rule_hmms.py --rules-file output/subcluster_rules.txt --out-dir output
 ```
 
-Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP/smCOG model the rules reference (PGAP models under their rule name), plus `cutoffs.tsv`. Each `.hmm`'s GA line is the cutoff antiSMASH should use (the same as in step 2), and `cutoffs.tsv` lists them for `hmmdetails.txt`: a cutoff override if there is one, the curated cutoff for smCOGs, otherwise the model's GA (Pfam, TIGRFAM, NCBIFAM).
+Writes `output/compound_details.txt` (one row per RULE; antiSMASH needs a row for every RULE to load the rules) and one `<domain>.hmm` per Pfam/PGAP/smCOG model the rules reference (PGAP models under their rule name), into `output/rule_hmms/`, plus `output/hmmdetails.txt` and `output/cutoffs.tsv`, so `output/` mirrors the module's `data/` layout. Copy the `.hmm` files into the subclusters module's `data/rule_hmms/` and `hmmdetails.txt` into its `data/`. The `.hmm` files are written as the databases ship them, except for the NAME line of PGAP and smCOG models (set to the rule name, which antiSMASH matches against `hmmdetails.txt`). The cutoffs, the same as in step 2, are only in `hmmdetails.txt` (rounded down to a whole number, since antiSMASH reads it as an integer) and `cutoffs.tsv` (exact value): a cutoff override if there is one, the curated cutoff for smCOGs, otherwise the model's GA (Pfam, TIGRFAM, NCBIFAM).
 
 ### Notes
 
-- `hmmdetails.txt` entries for the antiSMASH subclusters `data/` directory are not generated; add them by hand.
 - After changing rule logic (e.g. CUTOFF), only steps 3–6 need re-running. Steps 1–2 are the slow DIAMOND/hmmsearch steps and their outputs don't change.

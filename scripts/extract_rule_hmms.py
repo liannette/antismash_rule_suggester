@@ -5,19 +5,28 @@ Curated smCOG profiles (data/smcogs/smcog_profiles.tsv) are written as <SMCOGxxx
 PGAP models are written under their rule name (rule_suggester.pfam.libraries.pgap_rule_name), the
 same name step 2 gave them, with the HMM NAME line set to it.
 
-Writes one <domain>.hmm file per referenced profile (ASCII HMMER3 format), matching the
-one-file-per-domain convention antiSMASH's subclusters module data/ directory already uses
-(antismash/antismash/detection/subclusters/data/) -- ready to drop straight into it, alongside a
-matching hmmdetails.txt entry (not generated here; cutoffs.tsv lists the cutoff to use).
+Writes one <domain>.hmm file per referenced profile (ASCII HMMER3 format) into <out-dir>/rule_hmms/,
+matching the one-file-per-domain convention antiSMASH's subclusters module data/ directory already uses
+(antismash/antismash/detection/subclusters/data/rule_hmms/) -- ready to drop straight into it --
+plus <out-dir>/hmmdetails.txt for that data/ directory and <out-dir>/cutoffs.tsv (the exact cutoffs,
+for review). <out-dir> thus mirrors the module's data/ layout.
 
-Each .hmm's GA line is set to the cutoff antiSMASH should use, the same one step 2 used:
+The .hmm files are written as the databases ship them, except for the NAME line of PGAP and smCOG
+models, which is set to the rule name (antiSMASH matches hits to hmmdetails.txt by NAME). Cutoffs go
+only into hmmdetails.txt and cutoffs.tsv -- the same cutoffs step 2 used:
   - a cutoff override (data/pfam/cutoff_overrides.tsv), if the model has one
   - smCOGs: the curated cutoff (data/smcogs/smcog_profiles.tsv)
   - otherwise the model's own GA (Pfam, TIGRFAM, NCBIFAM)
+hmmdetails.txt rounds the cutoff down to a whole number, since antiSMASH reads it with int(); rounding
+down keeps every hit step 2 counted. Don't use antiSMASH's data/extract_details.py on these files: it
+takes the TC line, which ignores overrides and is missing for smCOGs.
+
 """
 
 import argparse
 import csv
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -39,6 +48,14 @@ DEFAULT_PGAP_METADATA = DATA / "ncbi_pgap" / "hmm_PGAP.tsv"
 DEFAULT_SMCOG_HMM = DATA / "smcogs" / "smcogs.hmm"
 DEFAULT_SMCOG_PROFILES = DATA / "smcogs" / "smcog_profiles.tsv"
 DEFAULT_CUTOFF_OVERRIDES = DATA / "pfam" / "cutoff_overrides.tsv"
+_DESC_PREFIX = re.compile(r"^(NCBIFAM|TIGRFAM|JCVI|PGAP)\s*:\s*")
+
+
+def hmmdetails_line(name: str, description: str, cutoff: float, accession: str) -> str:
+    """One antiSMASH subclusters hmmdetails.txt line: name, description, whole-number cutoff (rounded
+    down), path relative to data/, accession (with version; empty if the model has none)."""
+    description = " ".join(_DESC_PREFIX.sub("", description).split()) or name
+    return "\t".join([name, description, str(math.floor(cutoff + 1e-9)), f"rule_hmms/{name}.hmm", accession])
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,7 +75,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cutoff-overrides", type=Path, default=DEFAULT_CUTOFF_OVERRIDES,
                          help="Cutoff overrides as for step 2; used if the file exists.")
     parser.add_argument("--out-dir", type=Path, required=True,
-                         help="Directory to write one <domain>.hmm file per referenced profile into.")
+                         help="Output directory, e.g. output/. Gets hmmdetails.txt and cutoffs.tsv, and "
+                              "one <domain>.hmm file per referenced profile in its rule_hmms/ subdirectory.")
     return parser.parse_args()
 
 
@@ -77,16 +95,18 @@ def main() -> int:
     print(f"{len(wanted)} distinct domain(s) referenced in {args.rules_file}")
 
     overrides = load_cutoff_overrides(args.cutoff_overrides) if args.cutoff_overrides.exists() else {}
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    hmm_dir = args.out_dir / "rule_hmms"
+    hmm_dir.mkdir(parents=True, exist_ok=True)
     found: set[str] = set()
     cutoff_rows = []
+    details_lines = []
     libraries = [("Pfam", args.pfam_hmm.name, lambda: iter_hmm_file(args.pfam_hmm))]
     if not args.no_pgap:
         pgap = PgapLibrary.load(args.pgap_hmm, args.pgap_metadata, load_pfam_names(args.pfam_clans))
         libraries.append(("PGAP", args.pgap_hmm.name, pgap.iter_hmms))
     if args.smcog_profiles.exists() and any(name.startswith("SMCOG") for name in wanted):
         smcog = SmcogLibrary(args.smcog_hmm, load_smcog_profiles(args.smcog_profiles))
-        libraries.append(("smCOG", args.smcog_hmm.name, smcog.iter_hmms))
+        libraries.append(("smCOG", args.smcog_hmm.name, lambda: smcog.iter_hmms(apply_cutoffs=False)))
     for kind, label, hmms in libraries:
         if found == wanted:
             break
@@ -100,13 +120,18 @@ def main() -> int:
                     cutoff, reason = (overrides[acc],) * 2, "cutoff override"
                 elif kind == "PGAP":
                     cutoff, reason = ga, f"{pgap.model(_text(hmm.accession)).source} GA"
+                elif kind == "smCOG":
+                    cutoff, reason = (smcog.profiles[name],) * 2, "curated smCOG cutoff"
                 else:
-                    cutoff, reason = ga, ("curated smCOG cutoff" if kind == "smCOG" else "Pfam GA")
-                hmm.cutoffs.gathering = (round(cutoff[0], 2), round(cutoff[1], 2))
-                out_path = args.out_dir / f"{name}.hmm"
+                    cutoff, reason = ga, "Pfam GA"
+                out_path = hmm_dir / f"{name}.hmm"
                 with out_path.open("wb") as fh:
                     hmm.write(fh, binary=False)
                 cutoff_rows.append([name, acc, kind, f"{ga[1]:g}", f"{cutoff[1]:.2f}", reason])
+                details_lines.append(hmmdetails_line(
+                    name, smcog.descriptions[name] if kind == "smCOG" else _text(hmm.description or ""), cutoff[1],
+                    "" if kind == "smCOG" else _text(hmm.accession or ""),
+                ))
                 found.add(name)
                 if found == wanted:
                     break
@@ -114,9 +139,10 @@ def main() -> int:
         w = csv.writer(f, delimiter="\t")
         w.writerow(["name", "accession", "library", "model_ga", "cutoff", "reason"])
         w.writerows(sorted(cutoff_rows))
+    (args.out_dir / "hmmdetails.txt").write_text("\n".join(sorted(details_lines, key=str.lower)) + "\n")
 
     missing = sorted(wanted - found)
-    print(f"{len(found)}/{len(wanted)} written to {args.out_dir} (cutoffs in cutoffs.tsv)")
+    print(f"{len(found)}/{len(wanted)} written to {hmm_dir}; hmmdetails.txt and cutoffs.tsv in {args.out_dir}")
     if missing:
         print(f"WARNING: {len(missing)} domain(s) not found in {' / '.join(l for _, l, _ in libraries)}:", file=sys.stderr)
         for name in missing:

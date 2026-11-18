@@ -58,24 +58,51 @@ def main() -> int:
         print("error: every rule.txt has warnings -- nothing to combine", file=sys.stderr)
         return 1
 
-    # A SUPERIORS id that names no rule in the combined file makes antiSMASH reject the whole
-    # file, so catch it here rather than at load time.
-    combined = "\n\n".join(clean)
-    present = set(re.findall(r"(?m)^RULE\s+(\S+)", combined))
-    dangling: list[tuple[str, str]] = []
-    for block in re.split(r"(?m)^RULE\s+", combined)[1:]:
-        rid = block.split()[0]
-        for match in re.findall(r"(?m)^\s*SUPERIORS\s+(.+)$", block):
-            for sup in (v.strip() for v in match.split(",")):
-                if sup and sup not in present:
-                    dangling.append((rid, sup))
+    # antiSMASH requires a rule's superior to be *already defined* when the rule is parsed, so a
+    # superior must appear earlier in the file. Rule ids carry no ordering meaning (BB0084's superior
+    # is BB0098), so order the blocks so every superior precedes its inferiors, and report a
+    # SUPERIORS id that names no rule in the file -- either would make antiSMASH reject the whole file.
+    def rule_id_of(block: str) -> str:
+        return re.search(r"(?m)^RULE\s+(\S+)", block).group(1)
+
+    def superiors_of(block: str) -> list[str]:
+        return [v.strip() for m in re.findall(r"(?m)^\s*SUPERIORS\s+(.+)$", block)
+                for v in m.split(",") if v.strip()]
+
+    by_id = {rule_id_of(b): b for b in clean}
+    dangling = [(rid, sup) for rid, block in by_id.items()
+                for sup in superiors_of(block) if sup not in by_id]
     if dangling:
         print("error: SUPERIORS naming a rule that is not in the combined file:", file=sys.stderr)
         for rid, sup in dangling:
             print(f"  {rid}: SUPERIORS {sup}", file=sys.stderr)
-        print("  (a dropped or warning-skipped superior must be removed from data/manual_rules.tsv)",
+        print("  (a superior dropped or skipped for warnings must be removed from data/manual_rules.tsv)",
               file=sys.stderr)
         return 1
+
+    ordered: list[str] = []
+    placed: set[str] = set()
+    visiting: set[str] = set()
+
+    def place(rid: str) -> None:
+        if rid in placed:
+            return
+        if rid in visiting:
+            raise ValueError(f"SUPERIORS cycle involving {rid}")
+        visiting.add(rid)
+        for sup in superiors_of(by_id[rid]):
+            place(sup)
+        visiting.discard(rid)
+        placed.add(rid)
+        ordered.append(by_id[rid])
+
+    try:
+        for rid in sorted(by_id):
+            place(rid)
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+    clean = ordered
 
     try:
         segments_dir_display = args.segments_dir.relative_to(Path.cwd())

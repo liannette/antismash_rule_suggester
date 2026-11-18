@@ -233,9 +233,20 @@ RULE BB0052
                and Abhydrolase_6
                and cds(AA-adenyl-dom and AMP-binding_C and PP-binding and not ketoacyl-synt and not Condensation)
 
+RULE BB0121
+    CATEGORY Subcluster
+    DESCRIPTION S-beta-hydroxyenduracididine
+    CUTOFF 5
+    NEIGHBOURHOOD 0
+    CONDITIONS endura_MppP
+               and endura_MppQ
+               and endura_MppR
+               and GntD_guanitoxin
+
 RULE BB0055
     CATEGORY Subcluster
     DESCRIPTION enduracididine
+    SUPERIORS BB0121
     CUTOFF 5
     NEIGHBOURHOOD 0
     CONDITIONS endura_MppP
@@ -336,9 +347,19 @@ RULE BB0083
     NEIGHBOURHOOD 0
     CONDITIONS fabH and cds(PP-binding and not ketoacyl-synt and not Condensation) and cds(ketoacyl-synt and not AMP-binding and not Acyl_transf_1) and cds(Epimerase and not ketoacyl-synt and not Condensation) and cds(AMP-binding and Acyl_transf_1 and Aminotran_1_2 and PP-binding and ketoacyl-synt)
 
+RULE BB0098
+    CATEGORY Subcluster
+    DESCRIPTION isobutyrylmalonic acid
+    CUTOFF 5
+    NEIGHBOURHOOD 0
+    CONDITIONS crot-CoA-red
+               and fabH
+               and cds(3HCDH and 3HCDH_N)
+
 RULE BB0084
     CATEGORY Subcluster
     DESCRIPTION ethylmalonic acid
+    SUPERIORS BB0098
     CUTOFF 5
     NEIGHBOURHOOD 0
     CONDITIONS crot-CoA-red
@@ -432,15 +453,6 @@ RULE BB0097
                and cds(HpaB and HpaB_N)
                and cds(AMP-binding and AMP-binding_C and not ketoacyl-synt and not Condensation)
 
-RULE BB0098
-    CATEGORY Subcluster
-    DESCRIPTION isobutyrylmalonic acid
-    CUTOFF 5
-    NEIGHBOURHOOD 0
-    CONDITIONS crot-CoA-red
-               and fabH
-               and cds(3HCDH and 3HCDH_N)
-
 RULE BB0099
     CATEGORY Subcluster
     DESCRIPTION allylmalonic acid
@@ -489,19 +501,10 @@ RULE BB0113
     CONDITIONS Cupin_2
                and YqcI_YcgG
 
-RULE BB0121
-    CATEGORY Subcluster
-    DESCRIPTION S-beta-hydroxyenduracididine
-    CUTOFF 5
-    NEIGHBOURHOOD 0
-    CONDITIONS endura_MppP
-               and endura_MppQ
-               and endura_MppR
-               and GntD_guanitoxin
-
 RULE BB0124
     CATEGORY Subcluster
     DESCRIPTION S-beta-tyrosine
+    SUPERIORS BB0097
     CUTOFF 5
     NEIGHBOURHOOD 0
     CONDITIONS Tyr_2_3_mutase
@@ -517,6 +520,7 @@ RULE BB0127
 RULE BB0128
     CATEGORY Subcluster
     DESCRIPTION benzoxazolinate
+    SUPERIORS BB0041
     CUTOFF 5
     NEIGHBOURHOOD 0
     CONDITIONS Chorismate_bind

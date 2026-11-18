@@ -52,3 +52,54 @@ BB0051	4-hydroxyphenylglycine	ORF23*; ORF29; hpgT; pgat	HpgT-type aminotransfera
 # no model with this one. Both merely hit the same EDHA loci (BGC0001587, BGC0002568). Dropping BB0094
 # would lose capreomycin/friulimicin/zwittermicin/sulfazecin with nothing replacing it.
 # Needs: a specific 2,3-Dap aminotransferase (SbnA/cmnB-like) model to replace PALP.
+#
+# CUTOFF re-measured (2026-11-18) after the manual not-terms, on the current MIBiG 4.0 run.
+# BB0026 / BGC0000141 is still 95.9 kb / 35 CDS / 28 passive, but that span is INTRINSIC to the
+# reference subcluster, not an artifact: in data/genbanks/BB0026_D-rubranitrose/SC0041.gbk the eight
+# genes sit in three blocks -- rubN2 at 1 kb, rubN4/N5/N8 at 38-42 kb, rubN1/N3/N6/N7 at 91-96 kb.
+# CUTOFF 55 is what it takes to link them, so lowering it would split a genuine subcluster. Do not.
+# Remaining widest: BB0026 95.9 (cut 55), BB0018 62.7 (55), BB0017 61.2 (30), BB0041 44.4 (25),
+# BB0051 37.1 (45, median 7.5 -- one outlier only). Check each against its reference gene layout the
+# same way before changing a CUTOFF: a wide reference subcluster needs a wide CUTOFF.
+#
+# Wrong gene reported for a cds() term -- an antiSMASH BUG, not a rule or model problem.
+# BB0026 / BGC0000141 reports Epimerase against rubP3 (53.8 kb) and leaves the correct gene rubN6
+# (93.2 kb) passive; BB0017 / BGC0000654 likewise reports plaU instead of plaA7. A sweep of every
+# rule against its own reference BGCs found exactly these two cases, both on Epimerase.
+# Cause: CDSCondition.is_satisfied (common/hmm_rule_parser/rule_parser.py) ORs the per-gene results
+# into a bare boolean and returns ConditionMet(xor(results, negated)) with no matches and no
+# ancillary_hits, so a cds() term never reports WHICH gene satisfied it. The rubP3 credit instead
+# comes from the rubN2 anchor: apply_cluster_rules anchors on every CDS with a hit in turn and
+# measures CUTOFF from the anchor, and rubN2 (pos 1140) reaches rubP3 at 51.7 kb but not rubN6 at
+# 91.1 kb. Detection is correct either way -- only the reported gene list is wrong.
+# A pull request for this is already open (user, 2026-11-18); no action needed here.
+#
+# This is why the epimerase model below is NOT needed to fix these two gene lists -- the PR fixes
+# them. The model is still wanted for the genuinely ambiguous clusters, where Epimerase matches 7-8
+# genes in one cluster (BGC0002085, BGC0002088) and no reference-gene property separates them.
+#
+# SUPERIORS (2026-11-18, revised 2026-11-19 after checking each pair biologically, not just by gene set).
+# KEPT -- the superior is a genuine tailoring of the inferior's product, so where the extra gene is
+# present the derivative really is what the cluster makes:
+#   BB0091<BB0020  hydroxymalonyl-ACP is the on-pathway precursor; Methyltransf_3 (fkbG/asm17) O-methylates
+#                  it to methoxymalonyl-ACP. 20 hits dropped, all ansamycins/macrolides. 15 kept.
+#   BB0084<BB0098  CCR+HBDH pair vs the same operon plus the KSIII sitting between them (divRST); verified
+#                  in all 7 overlaps. 7 dropped, 17 kept.
+#   BB0128<BB0041  C-1027's benzoxazolinate IS methoxylated (SMILES starts COC1=CC2=C(NC(=O)...O2); sgcD4
+#                  is the O-MT), and the chromophore has only one such moiety. 3 dropped, 3 kept.
+#   BB0055<BB0121  MppO hydroxylates FREE L-enduracididine made by MppP/MppQ/MppR, and the mppO knockout
+#                  gives dideoxy-mannopeptimycins, so both residues are normally betahEnd (PMID 16298295).
+#                  Enduracididine is a transient intermediate there. 1 dropped, 1 kept (enduracidin).
+#   BB0124<BB0097  beta-tyrosine is the precursor of C-1027's chlorinated dihydroxy-beta-Phe. 2 dropped;
+#                  BB0124 keeps maduropeptin (its other reference) and 4 more hits.
+# REMOVED -- BB0089<BB0016 was NOT biologically sound. Platensimycin/platencin make ent-kauranol and
+#   ent-atiserene (PtmT3 / PtmT1), chemically distinct from the brasilicardin/KS-505a tricyclic
+#   diterpenoids; the two rules share only the upstream GGPP -> ent-CPP steps. These are parallel diterpene
+#   pathways, not precursor/derivative, and the SUPERIORS would have deleted BB0089 on its own reference
+#   BGC0001140 (platensimycin/platencin), leaving it with zero hits. Both rules should stand.
+# Net: 33 redundant hits removed (523 -> 490).
+# Checked and deliberately NOT paired: BB0025/BB0023 and BB0059/BB0105, where the inferior credits genes
+# the superior misses -- co-occurring building blocks in one cluster, not a subset relationship.
+# Lesson: a strict-superset gene relationship is necessary but NOT sufficient. Before adding SUPERIORS,
+# check whether the superior's extra gene really tailors the inferior's product, and check whether the
+# inferior would lose a hit on one of its OWN reference BGCs (4 of the 6 pairs did; only BB0089's was wrong).

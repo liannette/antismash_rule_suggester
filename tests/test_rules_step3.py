@@ -82,6 +82,65 @@ def test_duplicate_multi_domain_term_is_deduped_and_reported(tmp_path):
     assert rule.duplicate_condition_groups == {"cds(Dimerisation and Methyltransf_2)": ["G02", "G03"]}
 
 
+def test_module_exclusions_added_to_promiscuous_terms(tmp_path):
+    # G01's rep is a discrete carrier -> gets both module exclusions; G02 is the PKS module itself
+    # (ketoacyl-synt among its reps) -> left alone; G03's rep is specific -> left alone.
+    d = _write_group(tmp_path, {"G01": ["SC1"], "G02": ["SC1"], "G03": ["SC1"]}, [
+        ("G01", "PP-binding", True, True, 1e-10),
+        ("G02", "ketoacyl-synt", True, True, 1e-80), ("G02", "Acyl_transf_1", True, True, 1e-60),
+        ("G03", "FkbH", True, True, 1e-90),
+    ])
+    terms = build_conditions(build_group_summaries(
+        d / "groups.tsv", d / "presence.tsv", d / "group_domains.tsv")).condition_terms
+    assert "cds(PP-binding and not ketoacyl-synt and not Condensation)" in terms
+    assert "cds(ketoacyl-synt and Acyl_transf_1)" in terms or "cds(Acyl_transf_1 and ketoacyl-synt)" in terms
+    assert "FkbH" in terms
+
+    # a group whose own genes carry a marker keeps it: excluding it would break the group's match
+    d2 = tmp_path / "b"
+    d2.mkdir()
+    d2 = _write_group(d2, {"G01": ["SC1"]}, [
+        ("G01", "PP-binding", True, True, 1e-10), ("G01", "Condensation", True, False, 1e-40),
+    ])
+    terms = build_conditions(build_group_summaries(
+        d2 / "groups.tsv", d2 / "presence.tsv", d2 / "group_domains.tsv")).condition_terms
+    assert terms == ["cds(PP-binding and not ketoacyl-synt)"]
+
+
+def test_marker_carried_by_one_gene_blocks_its_exclusion(tmp_path):
+    # BB0007/simD6: one of several genes behind a group is a Cglyc-A-PCP didomain, so Condensation
+    # is present but too rare to be a signature. Excluding it would make the term unsatisfiable in
+    # that gene's own subcluster, so only the marker no gene carries may be excluded.
+    d = _write_group(tmp_path, {"G01": ["SC1", "SC2"]}, [
+        ("G01", "AA-adenyl-dom", True, True, 1e-70),
+        ("G01", "PP-binding", True, True, 1e-12),
+        ("G01", "Condensation", False, False, 1e-13),   # simD6 only -- not a signature
+    ])
+    terms = build_conditions(build_group_summaries(
+        d / "groups.tsv", d / "presence.tsv", d / "group_domains.tsv")).condition_terms
+    assert terms == ["cds(AA-adenyl-dom and PP-binding and not ketoacyl-synt)"]
+
+
+def test_non_discriminating_representative_warning(tmp_path):
+    # G02's rep (Epimerase) is also a signature of G01, whose own rep is the more specific model
+    d = _write_group(tmp_path, {"G01": ["SC1"], "G02": ["SC1"]}, [
+        ("G01", "dTDP_gluc_dehyt", True, True, 1e-80), ("G01", "Epimerase", True, False, 1e-20),
+        ("G02", "Epimerase", True, True, 1e-40),
+    ])
+    summaries = build_group_summaries(d / "groups.tsv", d / "presence.tsv", d / "group_domains.tsv")
+    warnings = build_rule.non_discriminating_warnings(summaries)
+    assert len(warnings) == 1
+    assert "G02" in warnings[0] and "Epimerase" in warnings[0] and "no model of this group is unique" in warnings[0]
+
+    # a group whose representative no other group shares is not reported
+    (tmp_path / "b").mkdir()
+    d2 = _write_group(tmp_path / "b", {"G01": ["SC1"], "G02": ["SC1"]}, [
+        ("G01", "dTDP_gluc_dehyt", True, True, 1e-80), ("G02", "Epimerase", True, True, 1e-40),
+    ])
+    assert build_rule.non_discriminating_warnings(
+        build_group_summaries(d2 / "groups.tsv", d2 / "presence.tsv", d2 / "group_domains.tsv")) == []
+
+
 def test_load_manual_rules(tmp_path):
     f = tmp_path / "m.tsv"
     f.write_text("# c\nrule_id\tfield\tvalue\tnote\nBB1\tCONDITIONS\ta or (b and c)\ttwo routes\n"
@@ -92,6 +151,31 @@ def test_load_manual_rules(tmp_path):
     f.write_text("rule_id\tfield\tvalue\nBB1\tCONDITION\tx\n")
     with pytest.raises(ValueError, match="unknown field"):
         load_manual_rules(f)
+
+
+def test_superiors_field(tmp_path):
+    f = tmp_path / "m.tsv"
+    f.write_text("rule_id\tfield\tvalue\tnote\nBB1\tSUPERIORS\tBB2, BB3\tsubset of both\n")
+    assert load_manual_rules(f)["BB1"].superiors == ("BB2", "BB3")
+
+    for bad, msg in [("BB1\tSUPERIORS\tBB2, BB2\t", "duplicate ids"),
+                     ("BB1\tSUPERIORS\tBB1\t", "lists the rule itself"),
+                     ("BB1\tSUPERIORS\t\t", "needs at least one rule id")]:
+        f.write_text("rule_id\tfield\tvalue\tnote\n" + bad + "\n")
+        with pytest.raises(ValueError, match=msg):
+            load_manual_rules(f)
+
+
+def test_superiors_rendered_before_cutoff(tmp_path):
+    d = _write_group(tmp_path, {"G01": ["SC1"]}, [("G01", "FkbH", True, True, 1e-90)])
+    manual = tmp_path / "manual.tsv"
+    manual.write_text("rule_id\tfield\tvalue\tnote\nBB9999\tSUPERIORS\tBB0020\tsubset rule\n")
+    build_rule.build_group_rule(d, tmp_path / "no_gbk", tmp_path / "none.json", {"BB9999": "x"},
+                                load_manual_rules(manual))
+    body = [ln.strip() for ln in (d / "rule.txt").read_text().splitlines() if not ln.startswith("#")]
+    keys = [ln.split()[0] for ln in body if ln]
+    assert keys.index("SUPERIORS") < keys.index("CUTOFF")
+    assert "SUPERIORS BB0020" in (d / "rule.txt").read_text()
 
 
 def test_manual_conditions_and_drop_in_rule_txt(tmp_path):
@@ -107,6 +191,17 @@ def test_manual_conditions_and_drop_in_rule_txt(tmp_path):
     text = (d / "rule.txt").read_text()
     assert not text.startswith("# WARNING") and warnings == []
     assert "CONDITIONS salicyl_syn or (isochor_syn and CM-like)" in text and "EXTENDERS" not in text.split("CONDITIONS")[1]
+
+    # an excluded (`not`) model needn't be a signature here, only hit by step 2 in some building block
+    other = tmp_path / "BB9998_other"
+    other.mkdir()
+    (other / "domains.tsv").write_text("sc_id\tpfam_name\nSC9\tSMCOG1147\n")
+    build_rule.searched_models.cache_clear()
+    manual.write_text("rule_id\tfield\tvalue\tnote\nBB9999\tCONDITIONS\tisochor_syn and CM-like and not SMCOG1147\t\n"
+                      "BB9999\tEXTENDERS\tcds(salicyl_syn and not Typo_model)\t\n")
+    _, warnings = build_rule.build_group_rule(d, tmp_path / "no_gbk", tmp_path / "none.json", {"BB9999": "x"},
+                                              load_manual_rules(manual))
+    assert len(warnings) == 1 and "EXTENDERS excludes" in warnings[0] and "Typo_model" in warnings[0]
 
     manual.write_text("rule_id\tfield\tvalue\tnote\nBB9999\tDROP\t\tlater\n")
     build_rule.build_group_rule(d, tmp_path / "no_gbk", tmp_path / "none.json", {"BB9999": "x"}, load_manual_rules(manual))

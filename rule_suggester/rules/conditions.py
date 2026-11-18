@@ -53,6 +53,7 @@ from ..phase1_io import load_groups_tsv
 class _GroupDomains:
     representatives: dict[str, list[str]]  # group_id -> sorted representative names
     signatures: dict[str, set[str]]  # group_id -> signature names
+    observed: dict[str, set[str]]  # group_id -> every domain any of its genes carries
     evalues: dict[str, dict[str, float]]  # group_id -> name -> best i-Evalue
     clans: dict[str, str]  # name -> clan accession (Pfam); absent = no clan
 
@@ -61,10 +62,12 @@ def _load_group_domains(group_domains_tsv: Path) -> _GroupDomains:
     reps: dict[str, list[str]] = defaultdict(list)
     sigs: dict[str, set[str]] = defaultdict(set)
     evalues: dict[str, dict[str, float]] = defaultdict(dict)
+    observed: dict[str, set[str]] = defaultdict(set)
     clans: dict[str, str] = {}
     with Path(group_domains_tsv).open(newline="") as f:
         for row in csv.DictReader(f, delimiter="\t"):
             g, name = row["group_id"], row["pfam_name"]
+            observed[g].add(name)
             if row["is_representative"] == "True":
                 reps[g].append(name)
             if row["is_signature"] == "True":
@@ -74,7 +77,7 @@ def _load_group_domains(group_domains_tsv: Path) -> _GroupDomains:
                 clans[name] = row["clan_acc"]
     for names in reps.values():
         names.sort()
-    return _GroupDomains(dict(reps), dict(sigs), dict(evalues), clans)
+    return _GroupDomains(dict(reps), dict(sigs), dict(observed), dict(evalues), clans)
 
 
 def load_representative_domains(group_domains_tsv: Path) -> dict[str, list[str]]:
@@ -97,6 +100,7 @@ class GroupSummary:
     n_scs_total: int  # total subclusters in the product group
     representative_domains: list[str] = field(default_factory=list)
     signature_domains: frozenset[str] = frozenset()
+    observed_domains: frozenset[str] = frozenset()  # every domain any gene of this group carries
     domain_evalues: dict[str, float] = field(default_factory=dict)  # best i-Evalue per domain
     member_groups: tuple[str, ...] = ()  # phase-1 groups merged into this one; empty = just group_id
     member_signature_domains: frozenset[str] = frozenset()  # merged group: every member's signatures
@@ -166,6 +170,7 @@ def build_group_summaries(
             n_scs_total=n_scs_total,
             representative_domains=domains.representatives.get(g, []),
             signature_domains=frozenset(domains.signatures.get(g, set())),
+            observed_domains=frozenset(domains.observed.get(g, set())),
             domain_evalues=domains.evalues.get(g, {}),
         )
         for g in order
@@ -228,6 +233,7 @@ def merge_complementary_groups(
             domain_evalues={d: max(m.domain_evalues.get(d, 1.0) for m in members) for d in shared},
             member_groups=ids,
             member_signature_domains=frozenset().union(*(m.signature_domains for m in members)),
+            observed_domains=frozenset().union(*(m.observed_domains for m in members)),
         )
     out = []
     for s in summaries:
@@ -238,13 +244,53 @@ def merge_complementary_groups(
     return out
 
 
-def _group_condition(pfam_names: list[str]) -> str:
-    """One group's CONDITIONS term: a bare id if it has a single representative domain, else a
-    cds() AND-chain requiring them all on the same protein.
+# Models that mark a gene as a module of a PKS/NRPS assembly line. Carrier, adenylation, reductase
+# and epimerase models match such a module's own domains just as well as they match the standalone
+# enzyme a subcluster group is built from, so a term taken from standalone genes excludes them.
+MODULE_MARKERS = ("ketoacyl-synt", "Condensation")
+
+# Domains only an assembly-line module carries. A term naming one of these describes a module gene
+# of this building block's own pathway, so it takes no module exclusion.
+MODULE_OWN_DOMAINS = frozenset({"ketoacyl-synt", "Ketoacyl-synt_C", "Condensation", "Acyl_transf_1", "PKS_DH_N"})
+
+# Representative models promiscuous enough to be satisfied by an assembly-line module's own domains.
+PROMISCUOUS_DOMAINS = frozenset({
+    "PP-binding", "SMCOG1147", "AA-adenyl-dom", "AMP-binding", "AMP-binding_C", "Thioesterase",
+    "adh_short", "adh_short_C2", "KR", "Epimerase", "Aminotran_1_2", "ACP_syn_III_C", "PKS_DH_N",
+})
+
+
+def module_exclusions(
+    representatives: list[str],
+    group_signatures: frozenset[str],
+    observed: frozenset[str] = frozenset(),
+) -> list[str]:
+    """The MODULE_MARKERS a group's term should exclude, or [] to leave the term alone.
+
+    Only for a term built on a promiscuous model, and only for a marker that *no* gene of this
+    group carries. A marker one of them carries must not be excluded even when it is too rare to
+    be a signature: the exclusion would make the term unsatisfiable in that gene's own subcluster.
+    BB0007 is the case that matters -- 1 of its 5 reference A-domain genes (simD6, simocyclinone)
+    is a Cglyc-A-PCP didomain, so `not Condensation` silently lost BGC0001072.
     """
-    if len(pfam_names) == 1:
-        return pfam_names[0]
-    return f"cds({' and '.join(pfam_names)})"
+    if not PROMISCUOUS_DOMAINS.intersection(representatives):
+        return []
+    # a term that already names an assembly-line domain describes a module gene, not a standalone one
+    if MODULE_OWN_DOMAINS.intersection(representatives):
+        return []
+    carried = group_signatures | observed | frozenset(representatives)
+    return [m for m in MODULE_MARKERS if m not in carried]
+
+
+def _group_condition(pfam_names: list[str], exclude: list[str] = ()) -> str:
+    """One group's CONDITIONS term: a bare id if it has a single representative domain, else a
+    cds() AND-chain requiring them all on the same protein. `exclude` adds 'not <model>' inside
+    the cds(), so the exclusion is a property of that one gene rather than of the whole locus.
+    """
+    parts = list(pfam_names) + [f"not {m}" for m in exclude]
+    if len(parts) == 1:
+        return parts[0]
+    return f"cds({' and '.join(parts)})"
 
 
 @dataclass(frozen=True)
@@ -266,21 +312,29 @@ def _core_terms(core: list[GroupSummary]) -> tuple[list[str], dict[str, list[str
     can't be folded into repeatable() the way a single shared domain can).
     """
     singleton_groups: dict[str, list[str]] = defaultdict(list)
+    singleton_exclusions: dict[str, list[str]] = {}
     other_group_ids_by_term: dict[str, list[str]] = defaultdict(list)
     for s in core:
+        exclude = module_exclusions(s.representative_domains, s.all_signature_domains, s.observed_domains)
         if len(s.representative_domains) == 1:
-            singleton_groups[s.representative_domains[0]].append(s.group_id)
+            domain = s.representative_domains[0]
+            singleton_groups[domain].append(s.group_id)
+            # a domain shared by several groups keeps only the exclusions they all allow
+            prev = singleton_exclusions.get(domain)
+            singleton_exclusions[domain] = exclude if prev is None else [m for m in prev if m in exclude]
         else:
-            other_group_ids_by_term[_group_condition(s.representative_domains)].append(s.group_id)
+            other_group_ids_by_term[_group_condition(s.representative_domains, exclude)].append(s.group_id)
 
     repeated_domains: dict[str, list[str]] = {}
     singleton_terms: list[str] = []
     for domain, group_ids in singleton_groups.items():
+        exclude = singleton_exclusions.get(domain, [])
         if len(group_ids) >= 2:
+            # repeatable() takes a bare model list, so an exclusion can't be expressed inside it
             singleton_terms.append(f"repeatable({len(group_ids)}, [{domain}])")
             repeated_domains[domain] = group_ids
         else:
-            singleton_terms.append(domain)
+            singleton_terms.append(_group_condition([domain], exclude))
 
     duplicate_condition_groups = {
         term: group_ids for term, group_ids in other_group_ids_by_term.items() if len(group_ids) >= 2

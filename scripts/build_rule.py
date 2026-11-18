@@ -18,6 +18,9 @@ may need manual editing; that detail is there to make checking it easier.
 """
 
 import argparse
+import csv
+import functools
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -66,6 +69,25 @@ def _identifiers(condition: str) -> set[str]:
     return set(_IDENTIFIER_RE.findall(condition)) - _KEYWORDS
 
 
+_NEGATED_RE = re.compile(r"\bnot\s+([A-Za-z0-9_-]+)")
+
+
+def _negated_identifiers(condition: str) -> set[str]:
+    """Identifiers directly after `not` (e.g. `not SMCOG1147`, `cds(AMP-binding and not ketoacyl-synt)`):
+    models that must be absent, so they needn't be a signature of this building block's own genes."""
+    return set(_NEGATED_RE.findall(condition)) - _KEYWORDS
+
+
+@functools.cache
+def searched_models(segments_root: Path) -> frozenset[str]:
+    """Every model step 2 reported a hit for, in any building block under segments_root."""
+    names: set[str] = set()
+    for domains_tsv in segments_root.glob("*/domains.tsv"):
+        with domains_tsv.open(newline="") as f:
+            names.update(row["pfam_name"] for row in csv.DictReader(f, delimiter="\t"))
+    return frozenset(names)
+
+
 def _format_conditions_multiline(terms: list[str], keyword: str) -> list[str]:
     """One top-level term per line, continuation lines aligned under where the first term
     starts: matches manually-written rules' style, and keeps long AND-chains scannable.
@@ -76,11 +98,17 @@ def _format_conditions_multiline(terms: list[str], keyword: str) -> list[str]:
     return lines
 
 
-def render_rule_block(rule_id: str, description: str, cutoff: int | None, rule: RuleConditions) -> list[str]:
+def render_rule_block(rule_id: str, description: str, cutoff: int | None, rule: RuleConditions,
+                      superiors: tuple[str, ...] = ()) -> list[str]:
     lines = [
         f"RULE {rule_id}",
         "    CATEGORY Subcluster",
         f"    DESCRIPTION {sanitize_description(description)}",
+    ]
+    # the grammar puts SUPERIORS after DESCRIPTION and before CUTOFF
+    if superiors:
+        lines.append(f"    SUPERIORS {', '.join(superiors)}")
+    lines += [
         f"    CUTOFF {cutoff if cutoff is not None else '<unresolved -- see CUTOFF/NEIGHBOURHOOD estimate below>'}",
         "    NEIGHBOURHOOD 0",
     ]
@@ -102,6 +130,50 @@ def _group_row(s: GroupSummary, include_scs: bool) -> str:
     return f"| {s.group_id} | {genes} | {domains} | {contributes} |"
 
 
+def non_discriminating_warnings(summaries: list[GroupSummary]) -> list[str]:
+    """Groups whose representative domains are all signatures of another group too.
+
+    Representatives are picked per group, so nothing stops two groups from being represented by
+    models the other group's gene also carries -- the rule then looks like it needs both genes
+    while one can satisfy both terms (e.g. a dedicated epimerase whose Epimerase model the
+    4,6-dehydratase gene matches as well). Reported with the alternatives, if any, that no other
+    group shares, so the fix can be written by hand in data/manual_rules.tsv.
+    """
+    warnings: list[str] = []
+    for s in summaries:
+        reps = set(s.representative_domains)
+        if not reps:
+            continue
+        covering = sorted(o.group_id for o in summaries
+                          if o.group_id != s.group_id and reps <= set(o.all_signature_domains)
+                          and reps != set(o.representative_domains))
+        if not covering:
+            continue
+        shared = set().union(*(set(o.all_signature_domains) for o in summaries if o.group_id != s.group_id))
+        unique = sorted(set(s.all_signature_domains) - shared)
+        alternatives = (f"models only this group has: {', '.join(unique)}" if unique
+                        else "no model of this group is unique to it")
+        warnings.append(
+            f"**Representative domain(s) of {s.group_id} are not specific to it:** "
+            f"`{' + '.join(s.representative_domains)}` is also a signature of "
+            f"{', '.join(covering)}, so one gene can satisfy both terms -- {alternatives}."
+        )
+    return warnings
+
+
+# Warnings that describe the models available rather than a defect in the rule: a group whose
+# representative isn't specific to it usually has no better model to choose (see the
+# non_discriminating_warnings docstring), so the rule is as good as the profiles allow. Reported
+# as advisory notes instead of blocking combine_rules.py.
+ADVISORY_PREFIXES = ("**Representative domain(s) of",)
+
+
+def split_advisory(warnings: list[str]) -> tuple[list[str], list[str]]:
+    """(blocking, advisory) -- advisory ones still get reported, but don't hold the rule back."""
+    advisory = [w for w in warnings if w.startswith(ADVISORY_PREFIXES)]
+    return [w for w in warnings if w not in advisory], advisory
+
+
 def build_warnings(
     core: list[GroupSummary],
     extra: list[GroupSummary],
@@ -113,6 +185,7 @@ def build_warnings(
     building_blocks_json: Path,
     manual: ManualRule | None = None,
     known_domains: set[str] | None = None,
+    searched: frozenset[str] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     manual_conditions = manual is not None and manual.conditions is not None
@@ -142,6 +215,8 @@ def build_warnings(
         )
     if not core and not manual_conditions:
         warnings.append("**No core groups at all** -- CONDITIONS can't anchor a rule on this product group.")
+    if not manual_conditions:
+        warnings.extend(non_discriminating_warnings(core + extra))
     if rule.duplicate_condition_groups and not manual_conditions:
         for term, group_ids in rule.duplicate_condition_groups.items():
             warnings.append(
@@ -152,11 +227,21 @@ def build_warnings(
             )
     if manual is not None and known_domains is not None:
         for field_name, value in (("CONDITIONS", manual.conditions), ("EXTENDERS", manual.extenders)):
-            unknown = sorted(_identifiers(value) - known_domains) if value and value != "-" else []
+            if not value or value == "-":
+                continue
+            negated = _negated_identifiers(value)
+            unknown = sorted(_identifiers(value) - negated - known_domains)
             if unknown:
                 warnings.append(
                     f"**Manual {field_name} uses identifier(s) that are no signature model of any group here:** "
                     f"{', '.join(unknown)} -- check for typos (names as in group_domains.tsv)."
+                )
+            # an excluded model only has to exist: it was searched in step 2 and hit somewhere
+            unknown_negated = sorted(negated - known_domains - (searched or frozenset()))
+            if unknown_negated:
+                warnings.append(
+                    f"**Manual {field_name} excludes (`not`) model(s) step 2 never reported in any building block:** "
+                    f"{', '.join(unknown_negated)} -- check for typos (names as in domains.tsv)."
                 )
     if rule.redundant_extenders:
         for dominated, dominating in rule.redundant_extenders:
@@ -177,13 +262,20 @@ def render_rule_block_with_warnings(
     instead of it being stranded in rule_conditions.md.
     """
     lines: list[str] = []
-    if warnings:
-        lines.append(f"# WARNING: {len(warnings)} warning(s) below -- see rule_conditions.md for full detail.")
-        lines.extend(f"# - {w.replace('**', '')}" for w in warnings)
+    blocking, advisory = split_advisory(warnings)
+    if blocking:
+        lines.append(f"# WARNING: {len(blocking)} warning(s) below -- see rule_conditions.md for full detail.")
+        lines.extend(f"# - {w.replace('**', '')}" for w in blocking)
+        lines.append("")
+    if advisory:
+        lines.append(f"# NOTE: {len(advisory)} advisory note(s) -- see rule_conditions.md; "
+                     "these don't hold the rule back.")
+        lines.extend(f"# - {w.replace('**', '')}" for w in advisory)
         lines.append("")
     if manual is not None and not manual.drop:
         lines.append("# MANUAL (data/manual_rules.tsv): " + ("; ".join(manual.notes) or "hand-written fields"))
-    lines.extend(render_rule_block(rule_id, description, cutoff, rule))
+    lines.extend(render_rule_block(rule_id, description, cutoff, rule,
+                                   manual.superiors if manual is not None else ()))
     if manual is not None and manual.drop:
         reason = "; ".join(manual.notes) or "no reason given"
         lines = [f"# DROPPED (data/manual_rules.tsv): {reason}"] + [f"# {line}" for line in lines]
@@ -220,7 +312,8 @@ def render(
     )
     lines.append("")
     lines.append("```")
-    lines.extend(render_rule_block(rule_id, description or "<unknown -- not in building_blocks.json>", cutoff, rule))
+    lines.extend(render_rule_block(rule_id, description or "<unknown -- not in building_blocks.json>", cutoff, rule,
+                                   manual.superiors if manual is not None else ()))
     lines.append("```")
     lines.append("")
 
@@ -373,7 +466,7 @@ def build_group_rule(
     if manual is not None and manual.conditions is not None:
         rule = replace(rule, conditions=manual.conditions, condition_terms=[manual.conditions],
                        repeated_domains={}, duplicate_condition_groups={}, redundant_with_conditions=[])
-        wanted = _identifiers(manual.conditions)
+        wanted = _identifiers(manual.conditions) - _negated_identifiers(manual.conditions)
         condition_groups = {g for s in summaries if s.all_signature_domains & wanted for g in s.groups}
     if manual is not None and manual.extenders is not None:
         rule = replace(rule, extenders=None if manual.extenders == "-" else manual.extenders, redundant_extenders=[])
@@ -396,7 +489,7 @@ def build_group_rule(
     known_domains = {d for s in summaries for d in s.all_signature_domains}
     warnings = build_warnings(
         core, extra, rule, unresolved_scs, partial_scs, description, rule_id, building_blocks_json,
-        manual, known_domains,
+        manual, known_domains, searched_models(segment_dir.parent),
     )
 
     text = render(
@@ -438,6 +531,7 @@ def main() -> int:
 
     failed = []
     with_warnings: list[str] = []
+    with_notes: list[str] = []
     dropped: list[str] = []
     manual_fields: list[str] = []
     for group_dir in group_dirs:
@@ -455,8 +549,11 @@ def main() -> int:
         if manual is not None and manual.drop:
             dropped.append(rule_id)
         else:
-            if warnings:
+            blocking, advisory = split_advisory(warnings)
+            if blocking:
                 with_warnings.append(rule_id)
+            if advisory:
+                with_notes.append(rule_id)
             if manual is not None:
                 manual_fields.append(rule_id)
 
@@ -465,7 +562,9 @@ def main() -> int:
             print(f"Written to {group_dir / 'rule_conditions.md'} and {group_dir / 'rule.txt'} "
                   f"({len(warnings)} warning(s))", file=sys.stderr)
         else:
-            status = f"{len(warnings)} warning(s)" if warnings else "ok"
+            blocking, advisory = split_advisory(warnings)
+            bits = ([f"{len(blocking)} warning(s)"] if blocking else []) + ([f"{len(advisory)} note(s)"] if advisory else [])
+            status = ", ".join(bits) or "ok"
             if manual is not None:
                 status += ", DROPPED (manual)" if manual.drop else ", manual fields"
             print(f"  {group_dir.name}: {status}")
@@ -474,6 +573,8 @@ def main() -> int:
         print(f"Done: {len(group_dirs) - len(failed)} group(s) built, {len(failed)} failed.")
         print(f"  {len(with_warnings)} with warnings (skipped by combine_rules.py)"
               + (f": {', '.join(with_warnings)}" if with_warnings else ""))
+        print(f"  {len(with_notes)} with advisory notes (still combined)"
+              + (f": {', '.join(with_notes)}" if with_notes else ""))
         print(f"  {len(dropped)} dropped in {args.manual_rules.name}" + (f": {', '.join(dropped)}" if dropped else ""))
         print(f"  {len(manual_fields)} with hand-written fields" + (f": {', '.join(manual_fields)}" if manual_fields else ""))
         n_clean = len(group_dirs) - len(failed) - len(with_warnings) - len(dropped)

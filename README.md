@@ -77,6 +77,7 @@ Writes `rule.txt` (the RULE block) and `rule_conditions.md` (the per-group detai
 - NEIGHBOURHOOD is always 0.
 - Complementary groups: non-core groups that never share a subcluster, together cover all of them and share a signature domain (one function split by step 1, e.g. a divergent ortholog) are merged into one core group (`G03+G04`) whose representatives are the shared signature domains.
 - `data/manual_rules.tsv` (columns `rule_id`, `field`, `value`, `note`) holds hand-written changes: `CONDITIONS` replaces the computed CONDITIONS (antiSMASH syntax, one line), `EXTENDERS` replaces EXTENDERS (`-` = none), `CUTOFF` sets CUTOFF, `DROP` leaves the rule out of step 5. Use it for what the automatic rules can't express, e.g. alternative routes (`a or (b and c)`) or two paralogs that should both be required (`repeatable(2, [x])`). Manual rules are marked `# MANUAL` / `# DROPPED` in `rule.txt`.
+- **Writing `not` exclusions.** A `not X` term (`cds(PP-binding and not ketoacyl-synt)`) is justified by what this building block's reference genes *are* -- a discrete ACP, a standalone epimerase, an A domain that isn't part of an assembly line -- not by which false matches a particular test run happened to show. A run only contains the collisions in that sample, while the rule runs against every cluster: BB0083's `cds(ketoacyl-synt and not AMP-binding and not Acyl_transf_1)` looks pointless against one MIBiG false match it fails to exclude, but 5 of the 7 KS-carrying genes in the reference set are PKS modules, so it guards the common case. Check `output/segments/<group>/domains.tsv` for what the reference genes carry, state the property in the `note`, and keep `not` inside the `cds()` when it's a property of one gene (a top-level `not` instead means "no such gene anywhere within CUTOFF"). A false match that no reference-gene property can exclude needs a more specific model -- record it in `data/specific_models_needed.tsv` rather than bending the term.
 
 ### 4. Combined report (optional, for review)
 
@@ -92,7 +93,7 @@ Merges `report.md`, `pfam_report.md` and `rule.txt` into `combined_report.md`.
 python scripts/combine_rules.py
 ```
 
-Writes `output/subcluster_rules.txt`. Groups whose `rule.txt` starts with `# WARNING` are skipped: check their `rule_conditions.md`, fix them, and re-run. Rules dropped in `data/manual_rules.tsv` are skipped too.
+Writes `output/subcluster_rules.txt`. Groups whose `rule.txt` starts with `# WARNING` are skipped: check their `rule_conditions.md`, fix them, and re-run. Rules dropped in `data/manual_rules.tsv` are skipped too. `--no-comments` leaves out the generated header and the `# MANUAL` notes, for a file of nothing but RULE blocks.
 
 ### 6. antiSMASH support files
 

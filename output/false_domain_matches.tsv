@@ -1,0 +1,44 @@
+rule	compound	bgc	bgc_product	cutoff_kb	extra_gene	contributed_models	all_models_on_gene	gene_product	n_ref_genes	ref_genes
+BB0005	actinamine	BGC0000715	spectinomycin	10	speH	GFO_IDH_MocA	GFO_IDH_MocA;GFO_IDH_MocA_C3	SpeH	4	spcA;spcB;spcM;spcS2
+BB0007	3-amino-4,7-dihydroxycoumarin	BGC0000141	rubradirin	5	rubB	adh_short	Acyl_transf_1;PKS_DH_N;Epimerase;ketoacyl-synt;KR;adh_short;Ketoacyl-synt_C;PP-binding	putative polyketide synthase	3	rubC1;rubC2;rubC3
+BB0007	3-amino-4,7-dihydroxycoumarin	BGC0001072	simocyclinone	5	simD4	adh_short;adh_short_C2	KR;adh_short;Epimerase;adh_short_C2	putative 3-keto-acyl-reductase SimD4	4	simD1;simD2;simD3;simD6
+BB0010	pyrrole-2-carboxylic acid	BGC0000654	phenalinolactone	5	plaP1	PP-binding	PP-binding	PlaP1	2	plaP3;plaP4
+BB0010	pyrrole-2-carboxylic acid	BGC0000832	clorobiocin	5	cloN1	PP-binding	PP-binding	hypothetical protein	3	cloN3;cloN4;cloN5
+BB0010	pyrrole-2-carboxylic acid	BGC0000833	coumermycin A1	5	couN1	PP-binding	PP-binding	hypothetical protein	3	couN3;couN4;couN5
+BB0017	L-amicetose	BGC0000654	phenalinolactone	30	plaU	Epimerase	adh_short;Epimerase;KR;adh_short_C2	PlaU	7	plaA1;plaA2;plaA3;plaA4;plaA5;plaA7;plaA8
+BB0017	L-amicetose	BGC0000654	phenalinolactone	30	plaZ	Epimerase	adh_short;Epimerase;KR;adh_short_C2	PlaZ	7	plaA1;plaA2;plaA3;plaA4;plaA5;plaA7;plaA8
+BB0018	3-amino-5-hydroxybenzoic acid	BGC0000136	rifamycin	55	AAC01730.1	DegT_DnrJ_EryC1	DegT_DnrJ_EryC1;Aminotran_1_2	putative dNTP-hexose dehydratase	8	rifG;rifH;rifI;rifJ;rifK;rifL;rifM;rifN
+BB0018	3-amino-5-hydroxybenzoic acid	BGC0000136	rifamycin	55	AAC01734.1	GFO_IDH_MocA;GFO_IDH_MocA_C3	GFO_IDH_MocA;GFO_IDH_MocA_C3	putative dNTP-hexose 3-ketoreductase	8	rifG;rifH;rifI;rifJ;rifK;rifL;rifM;rifN
+BB0018	3-amino-5-hydroxybenzoic acid	BGC0000141	rubradirin	55	rubN4	DegT_DnrJ_EryC1	DegT_DnrJ_EryC1	putative aminotransferase	7	rubG;rubH;rubJ;rubK;rubL;rubM;rubN
+BB0023	L-rhodinose	BGC0000239	landomycin	15	lanR	Epimerase	Epimerase	4-keto reductase homolog	8	lanG;lanH14;lanQ;lanS;lanT;lanZ1;lanZ2;lanZ3
+BB0023	L-rhodinose	BGC0001046	streptolydigin	15	slgA3	Epimerase	PKS_DH_N;KR;adh_short;Epimerase;PP-binding;ketoacyl-synt;Ketoacyl-synt_C;Acyl_transf_1	polyketide synthase type I	7	slgS1;slgS2;slgS3;slgS4;slgS5;slgS6;slgS7
+BB0025	D-olivose	BGC0000036	chlorothricin	10	AAZ77693.1	Epimerase	ketoacyl-synt;Acyl_transf_1;PKS_DH_N;KR;adh_short;Epimerase;PP-binding;Ketoacyl-synt_C	ChlA1	5	AAZ77680.1;AAZ77681.1;AAZ77682.1;AAZ77689.1;AAZ77690.1
+BB0026	D-rubranitrose	BGC0000141	rubradirin	55	rubB	Epimerase	Acyl_transf_1;PKS_DH_N;Epimerase;ketoacyl-synt;KR;adh_short;Ketoacyl-synt_C;PP-binding	putative polyketide synthase	8	rubN1;rubN2;rubN3;rubN4;rubN5;rubN6;rubN7;rubN8
+BB0026	D-rubranitrose	BGC0000141	rubradirin	55	rubC3	Epimerase	adh_short;Epimerase;KR;adh_short_C2	putative oxyacyl-(acyl carrier protein) reductase	8	rubN1;rubN2;rubN3;rubN4;rubN5;rubN6;rubN7;rubN8
+BB0026	D-rubranitrose	BGC0000141	rubradirin	55	rubK	DegT_DnrJ_EryC1	DegT_DnrJ_EryC1;Aminotran_1_2	putative AHBA synthase	8	rubN1;rubN2;rubN3;rubN4;rubN5;rubN6;rubN7;rubN8
+BB0026	D-rubranitrose	BGC0000141	rubradirin	55	rubP3	Epimerase	Epimerase	putative Hydroxylase	8	rubN1;rubN2;rubN3;rubN4;rubN5;rubN6;rubN7;rubN8
+BB0026	D-rubranitrose	BGC0000141	rubradirin	55	rubP4	Epimerase	Epimerase	putative hydroxylase	8	rubN1;rubN2;rubN3;rubN4;rubN5;rubN6;rubN7;rubN8
+BB0032	2-methoxy-5-chloro-6-methylsalicylic acid	BGC0000036	chlorothricin	5	AAZ77679.1	ACP_syn_III_C	ACP_syn_III_C	ChlB6	5	AAZ77673.1;AAZ77674.1;AAZ77675.1;AAZ77676.1;AAZ77678.1
+BB0037	5-iodo-2,3-di-O-methylorsellinic acid	BGC0000033	calicheamicin	15	calE10	p450	p450	CalE10	6	calO1;calO2;calO3;calO4;calO5;calO6
+BB0041	methoxybenzoxazolinate	BGC0000965	C-1027	25	AAL06673.1	AMP-binding	AMP-binding	coenzyme F390 synthase-like protein	5	AAL06664.1;AAL06665.1;AAL06666.1;AAL06683.1;AAL06684.1
+BB0041	methoxybenzoxazolinate	BGC0000965	C-1027	25	AAL06681.1	AMP-binding	AMP-binding;AMP-binding_C	A-domain type II peptide synthetase	5	AAL06664.1;AAL06665.1;AAL06666.1;AAL06683.1;AAL06684.1
+BB0041	methoxybenzoxazolinate	BGC0000965	C-1027	25	AAL06697.1	p450	p450	P450 hydroxylase	5	AAL06664.1;AAL06665.1;AAL06666.1;AAL06683.1;AAL06684.1
+BB0051	4-hydroxyphenylglycine	BGC0000341	enduracidin	45	endP	Aminotran_1_2	endura_MppP;Aminotran_1_2	PLP-dependent aminotransferase	3	ABD65943.1;ABD65945.1;ABD65949.1
+BB0051	4-hydroxyphenylglycine	BGC0000341	enduracidin	45	endQ	Aminotran_1_2	endura_MppQ;Aminotran_1_2	PLP-dependent aminotransferse	3	ABD65943.1;ABD65945.1;ABD65949.1
+BB0073	2-amino-3-hydroxycyclopent-2-enone	BGC0000052	ECO-02301	5	AAX98208.1	AMP-binding;AMP-binding_C	AMP-binding;AMP-binding_C	amide synthetase	2	AAX98209.1;AAX98210.1
+BB0073	2-amino-3-hydroxycyclopent-2-enone	BGC0000187	asukamycin	5	asuA2	AMP-binding;AMP-binding_C	AMP-binding;AMP-binding_C	AsuA2	2	asuD2;asuD3
+BB0073	2-amino-3-hydroxycyclopent-2-enone	BGC0000187	asukamycin	5	asuD1	AMP-binding;AMP-binding_C	AMP-binding;AMP-binding_C	AsuD1	2	asuD2;asuD3
+BB0075	quinoxaline-2-carboxylic acid	BGC0000450	triostin	25	MIPLSYAQRRMWFINRFEGPSSTYNIPLLLRFHGSLDTAALRAAFQDVLV	AA-adenyl-dom;AMP-binding_C;PP-binding	AMP-binding;AA-adenyl-dom;Condensation;AMP-binding_C;PP-binding	trsJ	7	trsB;trsC;trsF;trsO;trsP;trsQ;trsR
+BB0075	quinoxaline-2-carboxylic acid	BGC0000450	triostin	25	trsI	Thioesterase	Condensation;AMP-binding;AA-adenyl-dom;Methyltransf_25;PP-binding;Thioesterase	putative non-ribosomal peptide synthetase	7	trsB;trsC;trsF;trsO;trsP;trsQ;trsR
+BB0075	quinoxaline-2-carboxylic acid	BGC0000450	triostin	25	trsN	FAD_binding_3	FAD_binding_3	putative oxidoreductase	7	trsB;trsC;trsF;trsO;trsP;trsQ;trsR
+BB0083	2-undecylpyrrole	BGC0001063	undecylprodiginine	10	SCO5878	ketoacyl-synt	ketoacyl-synt;Ketoacyl-synt_C	polyketide synthase RedX	5	SCO5886;SCO5887;SCO5888;SCO5892;SCO5893
+BB0083	2-undecylpyrrole	BGC0001063	undecylprodiginine	10	SCO5890	PP-binding	PP-binding;Aminotran_1_2	putative 8-amino-7-oxononanoate synthase	5	SCO5886;SCO5887;SCO5888;SCO5892;SCO5893
+BB0090	3-aminosalicylic acid	BGC0000958	antimycin	5	STREPS4_RS11230	PP-binding	ketoacyl-synt;Ketoacyl-synt_C;Acyl_transf_1;PP-binding;Thioesterase	type I polyketide synthase	7	STREPS4_RS11240;STREPS4_RS11245;STREPS4_RS11250;STREPS4_RS11255;STREPS4_RS11260;STREPS4_RS11265;STREPS4_RS11270
+BB0091	hydroxymalonic acid	BGC0001059	zwittermicin A	15	zmaH	SMCOG1147	SMCOG1147;PP-binding	ZmaH	4	zmaD;zmaE;zmaG;zmaN
+BB0091	hydroxymalonic acid	BGC0001059	zwittermicin A	15	zmaI	Acyl-CoA_dh_1;Acyl-CoA_dh_M;Acyl-CoA_dh_N	Acyl-CoA_dh_N;Acyl-CoA_dh_M;Acyl-CoA_dh_1	ZmaI	4	zmaD;zmaE;zmaG;zmaN
+BB0092	aminomalonic acid	BGC0001059	zwittermicin A	5	zmaD	SMCOG1147	PP-binding;SMCOG1147	ZmaD	4	zmaG;zmaH;zmaI;zmaJ
+BB0092	aminomalonic acid	BGC0001059	zwittermicin A	5	zmaE	Acyl-CoA_dh_1;Acyl-CoA_dh_M;Acyl-CoA_dh_N	Acyl-CoA_dh_N;Acyl-CoA_dh_M;Acyl-CoA_dh_1	ZmaE	4	zmaG;zmaH;zmaI;zmaJ
+BB0112	glyceric acid	BGC0000036	chlorothricin	5	AAZ77699.1	PP-binding	ketoacyl-synt;Ketoacyl-synt_C;Acyl_transf_1;KR;PP-binding	ChlA6	2	AAZ77703.1;AAZ77704.1
+BB0112	glyceric acid	BGC0000082	kijanimicin	5	KijS5	PP-binding	ketoacyl-synt;Ketoacyl-synt_C;Acyl_transf_1;KR;PP-binding	polyketide synthase	2	KijC;KijD
+BB0112	glyceric acid	BGC0000164	tetronomycin	5	tmnAV	PP-binding	ADH_zinc_N;Ketoacyl-synt_C;Acyl_transf_1;ADH_N;adh_short_C2;ketoacyl-synt;PKS_DH_N;KR;adh_short;PP-binding	type I polyketide synthase	2	tmn16;tmn7a
+BB0112	glyceric acid	BGC0000164	tetronomycin	5	tmnDII	PP-binding	ketoacyl-synt;Ketoacyl-synt_C;PKS_DH_N;PP-binding;Thioesterase	type I polyketide synthase-related protein	2	tmn16;tmn7a

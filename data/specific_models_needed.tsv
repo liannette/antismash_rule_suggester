@@ -1,0 +1,54 @@
+# Rules that need a more specific HMM than Pfam/PGAP/smCOG provide. Tracking only, not read by any script.
+# current_handling: how the rule copes for now (see data/manual_rules.tsv). status: open / in progress / done.
+#
+# Only cases a rule change cannot fix belong here. A gene wrongly credited with a condition is one of:
+#   (a) a PKS/NRPS module -- exclude it with `not ketoacyl-synt` etc. in data/manual_rules.tsv, no entry here
+#   (b) a reference gene of another building block in the same cluster -- expected, usually no action
+#   (c) a standalone gene with no marker to exclude on -- this file
+# See the README section on manual rules: a `not` term is justified by what the reference genes are,
+# not by which false matches one test run showed.
+rule_id	building_block	genes	model_needed	problem	current_handling	evidence	status
+BB0002	streptidine-6-phosphate	strB1; strB2	strB1/strB2-specific model	no model hits these core genes, so they're left out of CONDITIONS	rule skipped (step 3 warning)	step 2: no GA-level hit	open
+BB0004	N-methyl-L-glucosamine	strG	strG-specific model	no model hits this core gene	rule skipped (step 3 warning)	step 2: no GA-level hit	open
+BB0011	3-methylpyrrole-2,4-dicarboxylic acid	couR2a	couR2a-specific model	no model hits this core gene	rule skipped (step 3 warning)	step 2: no GA-level hit	open
+BB0068	S-beta-hydroxycyclohex-2S-enylalanine	salX	salX-specific model	no model hits this core gene	rule skipped (step 3 warning)	step 2: no GA-level hit	open
+BB0125	2-carboxy-6-hydroxyoctahydroindole	aerD	aerD-specific model	no model hits this core gene	rule skipped (step 3 warning)	step 2: no GA-level hit	open
+BB0123	beta-methylphenylalanine	mppJ	MppJ-type methyltransferase	only gene; generic Methyltransf_25 would hit any methyltransferase	DROP	-	open
+BB0126	2,4-diaminobutyric acid	pvdH	PvdH-type diaminobutyrate aminotransferase	only gene; dat (PGAP) also covers EctB in ectoine clusters	DROP	-	open
+BB0088	2-deoxystreptamine	DOIS genes (btrC/neoC-type)	2-deoxy-scyllo-inosose synthase	cds(DHQS_C and DHQ_synthase) also matches DHQ synthase of AHBA/shikimate pathways	automatic rule	MIBiG: 3 AHBA false positives (mycotrienin I, divergolide, olimycin); misses BGC0000689 and gentamicin (BGC0000696, BGC0001603)	open
+BB0112	glyceric acid	chlD2; kijD; tmn7a (ACP), chlD1; kijC; tmn16 (FkbH)	tetronate-type ACP, or tetronate-type FkbH	PP-binding is generic and FkbH + ACP is also the first step of hydroxy-/methoxymalonyl-ACP (BB0091/BB0020); tetronomycin's FkbH and ACP are 80 kb apart	manual: cds(PP-binding and not SMCOG1147 and not ketoacyl-synt), CUTOFF 5 (tetronomycin no longer detected)	NBC162: 189 kb hit across the PKS/NRPS region; reference ACPs have no SMCOG1147 hit, NBC162 00147 scores 84.4. MIBiG: 4 PKS genes credited for PP-binding, all cleared by the not term	partly handled -- a tetronate-specific ACP would still be better
+BB0007	3-amino-4,7-dihydroxycoumarin	cloH; couH; novH; simD6; rubC1 (A-PCP), novJ/novK-type SDRs	NovH-type A-PCP (tyrosine), or NovJ/NovK-type SDR	cds(AA-adenyl-dom and AMP-binding_C and PP-binding) matches any NRPS/hybrid module; adh_short_C2 matches PKS KR domains	manual: not ketoacyl-synt in both cds() terms (no not Condensation: simD6 has a C domain); EXTENDERS removed as redundant	NBC162: p450 + KR of PKS 00137 + Gly A domain of hybrid 00144; KnownClusterBlast simocyclinone match covers no simD gene. MIBiG: simD4, a standalone 3-keto-acyl-reductase, still credited	open -- simD4 needs a NovJ/NovK-specific model
+BB0052	beta-hydroxytyrosine	bpsD; vcm15	BpsD-type A-PCP (tyrosine)	cds(AA-adenyl-dom and AMP-binding_C and PP-binding) matches any NRPS/hybrid module	proposed manual: not ketoacyl-synt and not Condensation	NBC162: p450 + hydrolase next to hybrid 00144 whose A domain loads Gly	open
+BB0010	pyrrole-2-carboxylic acid	cloN4; couN4; plaP4 (A), cloN3-type dehydrogenase	prolyl-AMP ligase, or prolyl-PCP dehydrogenase	all three CONDITIONS terms are generic (PP-binding, acyl-CoA dehydrogenase, A domain)	manual: not ketoacyl-synt and not Condensation	NBC162: Gly A domain of 00144 + hydroxymalonyl acyl-CoA dehydrogenase 00146; 70 MIBiG BGCs hit. MIBiG: cloN1, couN1 and plaP1 credited for PP-binding. These are carrier proteins of the pyrrole *transfer* step, not its biosynthesis, so the reference set (cloN3/N4/N5 = dehydrogenase, adenylate-forming enzyme, ACP) is correct as it stands: CloN4+CloN5+CloN3 make the moiety from L-proline, while CloN1/CloN2/CloN7 move it to the deoxysugar (Freitag 2005 ChemBioChem 10.1002/cbic.200500252; Xu 2006 Biochemistry 45:8568). CloN1's carrier role is a proposal, not settled	open -- PP-binding cannot separate the biosynthetic ACP (cloN5, 89 aa) from the transfer carrier (cloN1, 95 aa) in the same operon
+BB0092	aminomalonic acid	zmaJ	ZmaJ-type serine A domain	the A domain is the only term that separates it from hydroxymalonyl-ACP (BB0091)	proposed manual: not ketoacyl-synt and not Condensation	NBC162: hydroxymalonyl operon 00145-00148 + Gly A domain of 00144	open
+BB0017; BB0022; BB0023; BB0025; BB0026	L-amicetose; D-angolosamine; L-rhodinose; D-olivose; D-rubranitrose	plaA7; med-ORF14; lanZ3; slgS5; chlC5; lanR; rubN6	dTDP-sugar 3,5-epimerase / 4-ketoreductase (RmlC/RmlD-type)	Epimerase (PF01370) is a fold-level model matching 33 genes across the reference set; the only alternatives (GDP_Man_Dehyd, RmlD_sub_bind, NAD_binding_4/10, 3Beta_HSD) are equally unspecific, and chlC5 carries Epimerase and nothing else	manual: cds(Epimerase and not dTDP_gluc_dehyt and not ketoacyl-synt) removes 20 of 33	MIBiG: 9 of the 43 false domain matches are Epimerase, the largest share; rubP3/rubP4 (BB0026) and plaU/plaZ (BB0017) remain	open -- highest value, serves five rules, well-characterised families
+BB0073	2-amino-3-hydroxycyclopent-2-enone	ORF35; asuD3 (AMP-binding pair)	C5N-pathway acyl-CoA ligase	rule is two genes and cds(AMP-binding and AMP-binding_C) matches any amide synthetase or acyl-CoA ligase	automatic rule	MIBiG: AAX98208.1 (ECO-02301 amide synthetase), asuA2 and asuD1 (asukamycin) all credited	open
+BB0041	methoxybenzoxazolinate	AAL06664.1; AAL06665.1; AAL06666.1; AAL06683.1; AAL06684.1	benzoxazolinate-specific AMP-binding and p450	bare AMP-binding and p450 terms match other ligases and P450s in the same cluster	automatic rule	MIBiG: AAL06673.1 (coenzyme F390 synthase-like) and AAL06697.1 (P450 hydroxylase) credited in C-1027	open
+BB0037	5-iodo-2,3-di-O-methylorsellinic acid	calO1-calO6	calicheamicin-specific p450	bare p450 term matches other P450s in the cluster	manual CONDITIONS (repeatable for the two methyltransferases)	MIBiG: calE10 credited in calicheamicin	open
+BB0075	quinoxaline-2-carboxylic acid	trsN-type FAD monooxygenase	triostin-specific FAD_binding_3	bare FAD_binding_3 matches other oxidoreductases in the cluster	proposed manual: cds(Thioesterase and not ketoacyl-synt and not Condensation)	MIBiG: trsN credited in triostin; the NRPS trsI was credited for Thioesterase	open
+BB0083	2-undecylpyrrole	redR (standalone KS); redQ (ACP)	undecylprodiginine-specific KS and carrier	SCO5878 is another standalone type II KS and SCO5890 another PP-binding gene in the same cluster; no available model separates them from redR/redQ	proposed manual: not ketoacyl-synt on the ACP and epimerase terms, not AMP-binding/Acyl_transf_1 on the KS term	MIBiG: SCO5878 and SCO5890 credited in undecylprodiginine	open
+BB0032	2-methoxy-5-chloro-6-methylsalicylic acid	chlB3 (KAS III)	chlorothricin-specific ACP_syn_III_C	ACP_syn_III_C also matches ChlB6 in the same cluster	proposed manual: cds(PP-binding and not ketoacyl-synt)	MIBiG: AAZ77679.1 (ChlB6) credited in chlorothricin	open
+BB0051	4-hydroxyphenylglycine	ORF23*; ORF29; hpgT; pgat	HpgT-type aminotransferase	bare Aminotran_1_2 also matches endP/endQ of enduracididine (BB0055), which have their own endura_MppP/MppQ models	automatic rule	MIBiG: endP and endQ credited in enduracidin	open -- check first whether requiring endura_MppP/MppQ absence is enough
+# Deferred (2026-11-18): CUTOFF review for wide hits. BB0026 (55 kb), BB0018 (55), BB0017 (30), BB0009/BB0041 (25), BB0097 (20).
+# A wide hit is usually a symptom, not a cause: antiSMASH reports first-to-last contributing gene, so one
+# distant wrongly-credited gene stretches the span and the genes between it and the real locus come along
+# passively. BB0026's rubradirin hit was 95.9 kb with 35 CDS: 8 reference genes, 5 wrongly credited, 22 passive.
+# Re-measure the spans after the manual not-terms are in; only lower CUTOFF if hits are still wide once the
+# spurious credits are gone. Correlation of span with extra genes (r=0.87) reflects the shared cause, not CUTOFF driving it.
+#
+# Fixed (2026-11-18): BB0007 lost its own BGC0001072 (simocyclinone) to an automatic `not Condensation`.
+# simD6 is a Cglyc-A-PCP didomain, so Condensation is carried by 1 of the 5 reference A-domain genes --
+# present, but below the signature threshold, so module_exclusions() did not see it and excluded it anyway.
+# module_exclusions() now tests every domain a group's genes carry (observed_domains), not just signatures.
+# An audit of all 59 rules found this was the only term whose exclusion broke a reference subcluster, and
+# dropping it changes no hit among the 358 BGCs that formed protoclusters. Rerun antiSMASH to confirm recovery.
+#
+# BB0094 (2,3-diaminopropionic acid) -- weakest rule in the set, keep but tighten when possible.
+# One reference subcluster only (capreomycin: cmnB PALP, cmnK OCD_Mu_crystall), so two broad Pfam
+# families with no comparative evidence to narrow them and no reference-gene property to exclude on.
+# rapamycin (BGC0001040) fires because rapL, the lysine cyclodeaminase making pipecolate, is an
+# OCD_Mu_crystall member -- a genuine family-level collision, not a fixable annotation error.
+# NOT covered by antiSMASH's aminopolycarboxylic-acid rule: that fires on AesA+AesB+AesC and shares
+# no model with this one. Both merely hit the same EDHA loci (BGC0001587, BGC0002568). Dropping BB0094
+# would lose capreomycin/friulimicin/zwittermicin/sulfazecin with nothing replacing it.
+# Needs: a specific 2,3-Dap aminotransferase (SbnA/cmnB-like) model to replace PALP.

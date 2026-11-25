@@ -1,4 +1,5 @@
-"""HMM libraries searched in step 2: Pfam and NCBI PGAP (TIGRFAM + NCBIFAM + PRK models).
+"""HMM libraries searched in step 2: Pfam, NCBI PGAP (TIGRFAM + NCBIFAM + PRK models), a curated
+set of antiSMASH smCOG profiles, and a curated set of antiSMASH NRPS/PKS domain profiles.
 
 PGAP models are renamed to their *rule name* -- the identifier used in RULE CONDITIONS/EXTENDERS
 and as the <name>.hmm file name. That is the PGAP label with every character antiSMASH's rule
@@ -156,3 +157,73 @@ class SmcogLibrary:
         missing = sorted(set(self.profiles) - found)
         if missing:
             raise ValueError(f"smCOG profile(s) not in {self.hmm_path}: {', '.join(missing)}")
+
+
+def load_nrps_pks_profiles(path: Path, pfam_names: set[str] | None = None) -> dict[str, float]:
+    """Curated antiSMASH NRPS/PKS domain profiles to search, and their bitscore cutoffs (these
+    profiles mostly have no GA). Tab-separated, header `profile  cutoff  note`, `#` lines are comments.
+
+    A profile whose name collides with a Pfam family is rejected: the two are different models, and
+    one name must mean one model in hmmdetails.txt. Use the Pfam model instead -- it is searched
+    anyway -- or rename the profile here and in the rules.
+    """
+    profiles: dict[str, float] = {}
+    with Path(path).open(newline="") as f:
+        rows = csv.DictReader((line for line in f if line.strip() and not line.startswith("#")), delimiter="\t")
+        if rows.fieldnames is None or not {"profile", "cutoff"} <= set(rows.fieldnames):
+            raise ValueError(f"{path}: needs a header with at least 'profile' and 'cutoff' columns")
+        for row in rows:
+            name = row["profile"].strip()
+            if name in profiles:
+                raise ValueError(f"{path}: {name} listed more than once")
+            if pfam_names and name in pfam_names:
+                raise ValueError(
+                    f"{path}: {name} collides with the Pfam family of the same name -- they are different "
+                    f"models. Drop it (Pfam is searched anyway) or give the profile a distinct name."
+                )
+            if _INVALID_CHARS.search(name):
+                raise ValueError(f"{path}: {name} has characters the rule grammar doesn't accept")
+            try:
+                profiles[name] = float(row["cutoff"])
+            except ValueError:
+                raise ValueError(f"{path}: cutoff for {name} is not a number: {row['cutoff']!r}") from None
+    return profiles
+
+
+@dataclass(frozen=True)
+class NrpsPksLibrary:
+    """A curated subset of antiSMASH's NRPS/PKS domain profiles (data/nrps_pks/nrpspksdomains.hmm,
+    copied from antismash/detection/nrps_pks_domains/data/nrpspksdomains.hmm).
+
+    These resolve distinctions Pfam cannot: Pfam has a single `Condensation` model, while antiSMASH
+    ships separate Cglyc / Condensation_LCL / _DCL / _Starter / _Dual / _sid / Heterocyclization /
+    Epimerization profiles. Most carry no GA, so every listed profile needs a curated bitscore, and
+    antiSMASH applies them with a best-hit-wins refinement this pipeline does not have: several
+    profiles of the same fold will hit one domain at once, so pick cutoffs from a validated score
+    gap, not from a single example.
+
+    Hits are reported in domains.tsv but are never representative (see mapping._select_representatives,
+    which only promotes smCOG and the configured PGAP sources), so they reach a rule only through a
+    hand-written term in data/manual_rules.tsv.
+    """
+
+    hmm_path: Path
+    profiles: dict[str, float]  # profile name -> bitscore cutoff
+    descriptions: dict[str, str] = field(default_factory=dict)  # profile name -> description
+
+    def iter_hmms(self, apply_cutoffs: bool = True) -> Iterator[HMM]:
+        """apply_cutoffs=False (step 6): the profile is written as shipped, NAME unchanged."""
+        found = set()
+        for hmm in iter_hmm_file(self.hmm_path):
+            name = _text(hmm.name)
+            if name not in self.profiles:
+                continue
+            found.add(name)
+            self.descriptions[name] = _text(hmm.description)
+            if apply_cutoffs:
+                hmm.accession = name
+                hmm.cutoffs.gathering = (self.profiles[name], self.profiles[name])
+            yield hmm
+        missing = sorted(set(self.profiles) - found)
+        if missing:
+            raise ValueError(f"NRPS/PKS profile(s) not in {self.hmm_path}: {', '.join(missing)}")

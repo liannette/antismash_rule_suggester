@@ -16,7 +16,7 @@ from pathlib import Path
 from ..phase1_io import load_groups_tsv, load_segments_tsv
 from ..segments.io_fasta import Protein, discover_group_dirs, load_group_proteins
 from .clans import Clan, load_pfam_clans
-from .libraries import PgapLibrary, SmcogLibrary, load_pfam_names
+from .libraries import NrpsPksLibrary, PgapLibrary, SmcogLibrary, load_pfam_names
 from .mapping import build_group_of_segment, compute_group_domains, map_domains_to_segments
 from .outputs import write_pfam_outputs
 from .params import PfamParams
@@ -43,6 +43,9 @@ def run_pfam(
     smcog = None
     if params.smcog_hmm_path is not None and params.smcog_profiles:
         smcog = SmcogLibrary(params.smcog_hmm_path, params.smcog_profiles)
+    nrps_pks = None
+    if params.nrps_pks_hmm_path is not None and params.nrps_pks_profiles:
+        nrps_pks = NrpsPksLibrary(params.nrps_pks_hmm_path, params.nrps_pks_profiles)
     group_dirs = discover_group_dirs(fasta_dir)
 
     proteins_by_group: dict[str, list[Protein]] = {}
@@ -55,16 +58,18 @@ def run_pfam(
 
     libraries = params.hmm_path.name + (f", {pgap.hmm_path.name} ({len(pgap.models)} models)" if pgap else "")
     libraries += f", {len(smcog.profiles)} curated smCOG profile(s)" if smcog else ""
+    libraries += f", {len(nrps_pks.profiles)} curated NRPS/PKS profile(s)" if nrps_pks else ""
     print(f"Scanning {len(unique_proteins)} unique proteins against {libraries} ...")
-    all_domains = scan_pfam_domains(list(unique_proteins.values()), params, pgap, smcog)
+    all_domains = scan_pfam_domains(list(unique_proteins.values()), params, pgap, smcog, nrps_pks)
     domains_by_protein: dict[tuple[str, str], list] = defaultdict(list)
     for d in all_domains:
         domains_by_protein[(d.sc_id, d.protein_id)].append(d)
     n_pfam = sum(1 for d in all_domains if d.source == "Pfam")
     n_smcog = sum(1 for d in all_domains if d.source == "smCOG")
-    n_pgap = len(all_domains) - n_pfam - n_smcog
-    print(f"  {len(all_domains)} domain hits ({n_pfam} Pfam, {n_pgap} PGAP, {n_smcog} smCOG) "
-          f"across {len(unique_proteins)} proteins")
+    n_nrps_pks = sum(1 for d in all_domains if d.source == "nrps_pks")
+    n_pgap = len(all_domains) - n_pfam - n_smcog - n_nrps_pks
+    print(f"  {len(all_domains)} domain hits ({n_pfam} Pfam, {n_pgap} PGAP, {n_smcog} smCOG, "
+          f"{n_nrps_pks} NRPS/PKS) across {len(unique_proteins)} proteins")
 
     results = []
     for group_dir in group_dirs:

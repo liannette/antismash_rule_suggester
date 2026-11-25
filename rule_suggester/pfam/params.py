@@ -16,6 +16,9 @@ class PfamParams:
     pgap_metadata_path: Path | None = None  # hmm_PGAP.tsv
     smcog_hmm_path: Path | None = None  # antiSMASH smcogs.hmm; None = no smCOGs
     smcog_profiles: dict[str, float] = field(default_factory=dict)  # curated smCOG id -> bitscore cutoff
+    nrps_pks_hmm_path: Path | None = None  # antiSMASH nrpspksdomains.hmm; None = no NRPS/PKS profiles
+    # curated NRPS/PKS profile name -> bitscore cutoff; reported but never representative
+    nrps_pks_profiles: dict[str, float] = field(default_factory=dict)
     # a PGAP representative replaces a Pfam signature domain if it covers >= this share of the
     # Pfam domain's envelope (in a majority of the group's subclusters); also used between PGAP models
     replace_overlap: float = 0.5
@@ -26,6 +29,6 @@ class PfamParams:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        for key in ("hmm_path", "pgap_hmm_path", "pgap_metadata_path", "smcog_hmm_path"):
+        for key in ("hmm_path", "pgap_hmm_path", "pgap_metadata_path", "smcog_hmm_path", "nrps_pks_hmm_path"):
             d[key] = str(d[key]) if d[key] is not None else None
         return d

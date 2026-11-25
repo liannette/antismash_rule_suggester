@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.pfam.cutoffs import load_cutoff_overrides
-from rule_suggester.pfam.libraries import PgapLibrary, load_smcog_profiles
+from rule_suggester.pfam.libraries import PgapLibrary, load_nrps_pks_profiles, load_pfam_names, load_smcog_profiles
 from rule_suggester.pfam.params import PfamParams
 from rule_suggester.pfam.pipeline import run_pfam
 
@@ -29,6 +29,8 @@ DEFAULT_PGAP_METADATA = DATA_PGAP_DIR / "hmm_PGAP.tsv"
 PROJECT = Path(__file__).resolve().parent.parent
 DEFAULT_SMCOG_HMM = PROJECT / "data" / "smcogs" / "smcogs.hmm"  # from antismash/detection/genefunctions/tools/data/
 DEFAULT_SMCOG_PROFILES = PROJECT / "data" / "smcogs" / "smcog_profiles.tsv"
+DEFAULT_NRPS_PKS_HMM = PROJECT / "data" / "nrps_pks" / "nrpspksdomains.hmm"  # from antismash/detection/nrps_pks_domains/data/
+DEFAULT_NRPS_PKS_PROFILES = PROJECT / "data" / "nrps_pks" / "nrps_pks_profiles.tsv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,6 +51,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-pgap", action="store_true", help="Don't search PGAP.")
     parser.add_argument("--smcog-hmm", type=Path, default=DEFAULT_SMCOG_HMM,
                          help="antiSMASH smcogs.hmm. Default: %(default)s")
+    parser.add_argument("--nrps-pks-hmm", type=Path, default=DEFAULT_NRPS_PKS_HMM,
+                        help="antiSMASH nrpspksdomains.hmm. Default: %(default)s")
+    parser.add_argument("--nrps-pks-profiles", type=Path, default=DEFAULT_NRPS_PKS_PROFILES,
+                        help="TSV (profile, cutoff, note) of the NRPS/PKS domain profiles to search, with "
+                             "bitscore cutoffs. Reported in domains.tsv but never representative. "
+                             "Default: %(default)s")
     parser.add_argument("--smcog-profiles", type=Path, default=DEFAULT_SMCOG_PROFILES,
                          help="TSV (smcog_id, cutoff, note) of the smCOG profiles to search, with bitscore cutoffs. "
                               "Used if the file exists; default: %(default)s")
@@ -93,6 +101,21 @@ def main() -> int:
     else:
         print(f"No smCOG profile list at {args.smcog_profiles}: no smCOGs searched.")
 
+    nrps_pks_profiles: dict[str, float] = {}
+    if args.nrps_pks_profiles.exists():
+        try:
+            nrps_pks_profiles = load_nrps_pks_profiles(args.nrps_pks_profiles, load_pfam_names(args.pfam_clans))
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        if nrps_pks_profiles and not args.nrps_pks_hmm.exists():
+            print(f"NRPS/PKS HMM file not found at {args.nrps_pks_hmm}. Stopping.", file=sys.stderr)
+            return 1
+        print(f"NRPS/PKS profiles from {args.nrps_pks_profiles}: "
+              + (", ".join(f"{s} cutoff {c:g}" for s, c in sorted(nrps_pks_profiles.items())) or "none"))
+    else:
+        print(f"No NRPS/PKS profile list at {args.nrps_pks_profiles}: no NRPS/PKS profiles searched.")
+
     overrides: dict[str, float] = {}
     if args.cutoff_overrides.exists():
         try:
@@ -103,7 +126,7 @@ def main() -> int:
         known = {line.split("\t", 1)[0] for line in args.pfam_clans.open() if line.strip()}
         if not args.no_pgap:
             known |= PgapLibrary.load(args.pgap_hmm, args.pgap_metadata, set()).accessions()
-        known |= set(smcog_profiles)
+        known |= set(smcog_profiles) | set(nrps_pks_profiles)
         unknown = sorted(set(overrides) - known)
         if unknown:
             print(f"error: {args.cutoff_overrides} lists model(s) in neither Pfam nor PGAP: "
@@ -124,6 +147,8 @@ def main() -> int:
         pgap_metadata_path=None if args.no_pgap else args.pgap_metadata,
         smcog_hmm_path=args.smcog_hmm if smcog_profiles else None,
         smcog_profiles=smcog_profiles,
+        nrps_pks_hmm_path=args.nrps_pks_hmm if nrps_pks_profiles else None,
+        nrps_pks_profiles=nrps_pks_profiles,
     )
 
     try:

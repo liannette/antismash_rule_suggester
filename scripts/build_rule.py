@@ -80,11 +80,27 @@ def _negated_identifiers(condition: str) -> set[str]:
 
 @functools.cache
 def searched_models(segments_root: Path) -> frozenset[str]:
-    """Every model step 2 reported a hit for, in any building block under segments_root."""
+    """Every model step 2 searched with: those it reported a hit for in any building block under
+    segments_root, plus the curated smCOG and NRPS/PKS profiles it was configured to search.
+
+    A curated profile is searched whether or not it hits anything, and a cutoff chosen to exclude
+    something (e.g. Condensation_LCL at 150, which no reference A-PCP reaches) is *meant* to leave
+    no hits. Such a profile is still a valid `not` term, so the configured lists count as searched;
+    otherwise a correct exclusion is reported as a typo.
+    """
     names: set[str] = set()
     for domains_tsv in segments_root.glob("*/domains.tsv"):
         with domains_tsv.open(newline="") as f:
             names.update(row["pfam_name"] for row in csv.DictReader(f, delimiter="\t"))
+    data = Path(__file__).resolve().parent.parent / "data"
+    for profile_list, column in ((data / "smcogs" / "smcog_profiles.tsv", "smcog_id"),
+                                 (data / "nrps_pks" / "nrps_pks_profiles.tsv", "profile")):
+        if not profile_list.exists():
+            continue
+        with profile_list.open(newline="") as f:
+            rows = csv.DictReader((line for line in f if line.strip() and not line.startswith("#")),
+                                  delimiter="\t")
+            names.update(row[column].strip() for row in rows if row.get(column))
     return frozenset(names)
 
 

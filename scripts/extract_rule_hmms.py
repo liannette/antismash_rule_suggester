@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """CLI entry point for extracting per-domain HMM profiles for every identifier referenced in a
 combined rules file (scripts/combine_rules.py's output), from Pfam-A.hmm and the NCBI PGAP library.
-Curated smCOG profiles (data/smcogs/smcog_profiles.tsv) are written as <SMCOGxxxx>.hmm with their cutoff as GA.
+Curated smCOG profiles (data/smcogs/smcog_profiles.tsv) are written as <SMCOGxxxx>.hmm with their cutoff as GA,
+and curated NRPS/PKS domain profiles (data/nrps_pks/nrps_pks_profiles.tsv) as <profile>.hmm with theirs.
 PGAP models are written under their rule name (rule_suggester.pfam.libraries.pgap_rule_name), the
 same name step 2 gave them, with the HMM NAME line set to it.
 
@@ -16,10 +17,11 @@ models, which is set to the rule name (antiSMASH matches hits to hmmdetails.txt 
 only into hmmdetails.txt and cutoffs.tsv -- the same cutoffs step 2 used:
   - a cutoff override (data/pfam/cutoff_overrides.tsv), if the model has one
   - smCOGs: the curated cutoff (data/smcogs/smcog_profiles.tsv)
+  - NRPS/PKS profiles: the curated cutoff (data/nrps_pks/nrps_pks_profiles.tsv)
   - otherwise the model's own GA (Pfam, TIGRFAM, NCBIFAM)
 hmmdetails.txt rounds the cutoff down to a whole number, since antiSMASH reads it with int(); rounding
 down keeps every hit step 2 counted. Don't use antiSMASH's data/extract_details.py on these files: it
-takes the TC line, which ignores overrides and is missing for smCOGs.
+takes the TC line, which ignores overrides and is missing for smCOGs and NRPS/PKS profiles.
 
 """
 
@@ -34,7 +36,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rule_suggester.export.parse import extract_domain_ids
 from rule_suggester.pfam.cutoffs import load_cutoff_overrides
-from rule_suggester.pfam.libraries import PgapLibrary, SmcogLibrary, iter_hmm_file, load_pfam_names, load_smcog_profiles
+from rule_suggester.pfam.libraries import (
+    NrpsPksLibrary, PgapLibrary, SmcogLibrary, iter_hmm_file, load_nrps_pks_profiles, load_pfam_names,
+    load_smcog_profiles,
+)
 
 
 def _text(value: bytes | str) -> str:
@@ -47,6 +52,8 @@ DEFAULT_PGAP_HMM = DATA / "ncbi_pgap" / "hmm_PGAP.HMM.tgz"
 DEFAULT_PGAP_METADATA = DATA / "ncbi_pgap" / "hmm_PGAP.tsv"
 DEFAULT_SMCOG_HMM = DATA / "smcogs" / "smcogs.hmm"
 DEFAULT_SMCOG_PROFILES = DATA / "smcogs" / "smcog_profiles.tsv"
+DEFAULT_NRPS_PKS_HMM = DATA / "nrps_pks" / "nrpspksdomains.hmm"
+DEFAULT_NRPS_PKS_PROFILES = DATA / "nrps_pks" / "nrps_pks_profiles.tsv"
 DEFAULT_CUTOFF_OVERRIDES = DATA / "pfam" / "cutoff_overrides.tsv"
 _DESC_PREFIX = re.compile(r"^(NCBIFAM|TIGRFAM|JCVI|PGAP)\s*:\s*")
 
@@ -72,6 +79,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smcog-profiles", type=Path, default=DEFAULT_SMCOG_PROFILES,
                          help="Curated smCOG list (as for step 2); its profiles are written as <SMCOGxxxx>.hmm "
                               "with the curated cutoff as GA. Used if the file exists.")
+    parser.add_argument("--nrps-pks-hmm", type=Path, default=DEFAULT_NRPS_PKS_HMM)
+    parser.add_argument("--nrps-pks-profiles", type=Path, default=DEFAULT_NRPS_PKS_PROFILES,
+                         help="Curated NRPS/PKS profile list (as for step 2); its profiles are written as "
+                              "<profile>.hmm with the curated cutoff as GA. Used if the file exists.")
     parser.add_argument("--cutoff-overrides", type=Path, default=DEFAULT_CUTOFF_OVERRIDES,
                          help="Cutoff overrides as for step 2; used if the file exists.")
     parser.add_argument("--out-dir", type=Path, required=True,
@@ -107,6 +118,11 @@ def main() -> int:
     if args.smcog_profiles.exists() and any(name.startswith("SMCOG") for name in wanted):
         smcog = SmcogLibrary(args.smcog_hmm, load_smcog_profiles(args.smcog_profiles))
         libraries.append(("smCOG", args.smcog_hmm.name, lambda: smcog.iter_hmms(apply_cutoffs=False)))
+    nrps_pks = None
+    if args.nrps_pks_profiles.exists():
+        nrps_pks = NrpsPksLibrary(args.nrps_pks_hmm, load_nrps_pks_profiles(args.nrps_pks_profiles))
+        if wanted & set(nrps_pks.profiles):
+            libraries.append(("nrps_pks", args.nrps_pks_hmm.name, lambda: nrps_pks.iter_hmms(apply_cutoffs=False)))
     for kind, label, hmms in libraries:
         if found == wanted:
             break
@@ -122,6 +138,8 @@ def main() -> int:
                     cutoff, reason = ga, f"{pgap.model(_text(hmm.accession)).source} GA"
                 elif kind == "smCOG":
                     cutoff, reason = (smcog.profiles[name],) * 2, "curated smCOG cutoff"
+                elif kind == "nrps_pks":
+                    cutoff, reason = (nrps_pks.profiles[name],) * 2, "curated NRPS/PKS cutoff"
                 else:
                     cutoff, reason = ga, "Pfam GA"
                 out_path = hmm_dir / f"{name}.hmm"
@@ -130,7 +148,7 @@ def main() -> int:
                 cutoff_rows.append([name, acc, kind, f"{ga[1]:g}", f"{cutoff[1]:.2f}", reason])
                 details_lines.append(hmmdetails_line(
                     name, smcog.descriptions[name] if kind == "smCOG" else _text(hmm.description or ""), cutoff[1],
-                    "" if kind == "smCOG" else _text(hmm.accession or ""),
+                    "" if kind in ("smCOG", "nrps_pks") else _text(hmm.accession or ""),
                 ))
                 found.add(name)
                 if found == wanted:

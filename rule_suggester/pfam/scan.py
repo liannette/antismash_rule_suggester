@@ -15,7 +15,7 @@ from pyhmmer.easel import Alphabet, TextSequence
 from pyhmmer.plan7 import HMM
 
 from ..segments.io_fasta import Protein
-from .libraries import PgapLibrary, SmcogLibrary, iter_hmm_file
+from .libraries import NrpsPksLibrary, PgapLibrary, SmcogLibrary, iter_hmm_file
 from .params import PfamParams
 
 
@@ -31,7 +31,7 @@ class Domain:
     bitscore: float
     i_evalue: float
     passes_ga: bool = True  # False: detected only because of a cutoff override below the model's GA
-    source: str = "Pfam"  # Pfam / TIGRFAM / NCBIFAM / PRK / smCOG
+    source: str = "Pfam"  # Pfam / TIGRFAM / NCBIFAM / PRK / smCOG / nrps_pks
     family_type: str = ""  # PGAP family type (equivalog, subfamily, ...); empty for Pfam
     description: str = ""
 
@@ -105,11 +105,13 @@ def _search(
 
 
 def scan_pfam_domains(
-    proteins: list[Protein], params: PfamParams, pgap: PgapLibrary | None = None, smcog: SmcogLibrary | None = None
+    proteins: list[Protein], params: PfamParams, pgap: PgapLibrary | None = None,
+    smcog: SmcogLibrary | None = None, nrps_pks: NrpsPksLibrary | None = None,
 ) -> list[Domain]:
     """Run hmmsearch with each model's gathering-threshold cutoffs (--cut_ga) against every protein,
     except for models in params.cutoff_overrides, which use that bitscore instead. Pfam always;
-    the PGAP library and the curated smCOG profiles (with their curated cutoffs as GA) too when given.
+    the PGAP library, the curated smCOG profiles and the curated NRPS/PKS profiles (the latter two
+    with their curated cutoffs as GA) too when given.
     Proteins are keyed by "<sc_id>|<protein_id>" for the search; that's decoded back into
     per-domain sc_id/protein_id in the result, no other header parsing involved.
     """
@@ -139,6 +141,10 @@ def scan_pfam_domains(
         domains += _search(smcog.iter_hmms(), sequences, proteins_by_key, params,
                            lambda hmm: _ModelInfo("smCOG", "", _text(hmm.description)), original_ga)
         libraries += f" / {smcog.hmm_path.name}"
+    if nrps_pks is not None:
+        domains += _search(nrps_pks.iter_hmms(), sequences, proteins_by_key, params,
+                           lambda hmm: _ModelInfo("nrps_pks", "", _text(hmm.description)), original_ga)
+        libraries += f" / {nrps_pks.hmm_path.name}"
 
     missing = sorted(set(params.cutoff_overrides) - set(original_ga))
     if missing:

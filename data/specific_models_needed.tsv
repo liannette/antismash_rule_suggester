@@ -103,3 +103,22 @@ BB0051	4-hydroxyphenylglycine	ORF23*; ORF29; hpgT; pgat	HpgT-type aminotransfera
 # Lesson: a strict-superset gene relationship is necessary but NOT sufficient. Before adding SUPERIORS,
 # check whether the superior's extra gene really tailors the inferior's product, and check whether the
 # inferior would lose a hit on one of its OWN reference BGCs (4 of the 6 pairs did; only BB0089's was wrong).
+#
+# BB0052 (beta-hydroxytyrosine) -- 22 non-reference hits analysed 2026-11-19. NOT false positives in
+# the usual sense: the rule detects a conserved three-enzyme cassette (standalone A-PCP loads the amino
+# acid; P450 beta-hydroxylates it while PCP-tethered; free type-II thioesterase releases it), and every
+# hit has exactly that cassette. What varies is WHICH amino acid is loaded, which no model in the set
+# can distinguish, because the A domain is only ever seen as AA-adenyl-dom/AMP-binding_C/PP-binding.
+#   same block (beta-OH-Tyr), correct: glycopeptides -- ristocetin/ristomycin (BGC0000418/419),
+#     decaplanin (1459/1460), actinoidin (1461), avoparcin (1462), keratinimicin (1955),
+#     pekiskomycin (2992/3168), s56-p1 (1764). Dpg/Hpg/beta-OH-Tyr is the glycopeptide signature.
+#   DIFFERENT amino acid, same cassette: quinomycin/triostin/SW-163/echinomycin load TRYPTOPHAN ->
+#     beta-OH-Trp -> quinoxaline-2-carboxylic acid. The literature names the homolog sets outright:
+#     P450 = TioI/Swb13/TrsB/Ecm12/Qui15, TE = TioQ/Swb14/TrsQ/Ecm2/Qui14 (Mar. Drugs 2014, 12:2668,
+#     doi 10.3390/md12052668; in vitro: PMC3578932). salinosporamide (145/1041) and cinnabaramide (971)
+#     load cyclohexenylalanine, SalD hydroxylating the PCP-tethered CHA (PMC9058210).
+#   rubradirin (141): rubC1+rubC2 are the real beta-OH-Tyr step but it is BB0007's aminocoumarin route,
+#     where the intermediate is NEVER released -- so the cassette is incomplete and the Abhydrolase_6
+#     was supplied by an unrelated gene (CAI94722.1, "hypothetical protein"). rubP2 is a bare-term
+#     artifact (second p450 ~5 kb away).
+
